@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
+import { motion } from 'framer-motion'
 import { ArrowLeft, Eye, EyeOff, KeyRound, LoaderCircle, Mail, UserRound } from 'lucide-react'
+import AnimatedButton from '@/components/ui/interactive-hover-button'
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
 
@@ -66,12 +68,17 @@ export function AuthPage({ mode, savePlanIntent = false, onModeChange, onBack, o
   const subtitle = mode === 'signup' ? 'Save your backup plans and share feedback.' : mode === 'forgot' ? 'We will email you a secure reset link.' : mode === 'reset' ? 'Make a new password for your PowerUp account.' : 'Sign in to access your saved plans.'
 
   return (
-    <section className="mx-auto max-w-lg px-4 py-10 sm:py-16">
+    <section className="mx-auto max-w-md px-4 py-10 sm:py-16">
       <button onClick={onBack} className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Back</button>
-      <div className="rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-9">
-        <div className="mb-7">
-          <p className="mb-2 text-xs font-bold uppercase tracking-[.18em] text-[#B88628]">PowerUp Account</p>
-          <h1 className="text-3xl font-extrabold text-foreground">{title}</h1>
+      <motion.div
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.38, ease: 'easeOut' }}
+        className="rounded-3xl border border-border bg-card p-5 shadow-[0_18px_40px_rgba(17,17,22,0.06)] sm:p-7"
+      >
+        <div className="mb-6">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-[#B88628]">PowerUp Account</p>
+          <h1 className="text-2xl font-extrabold text-foreground sm:text-[2rem]">{title}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>
         </div>
         {savePlanIntent && <p role="status" className="mb-5 rounded-xl border border-[#D99B26]/30 bg-[#FFFCF5] p-3 text-sm leading-relaxed text-[#775313]">Your current backup plan is preserved. After you sign in or create an account, the save form will be ready for you.</p>}
@@ -86,7 +93,16 @@ export function AuthPage({ mode, savePlanIntent = false, onModeChange, onBack, o
           {(mode === 'signup' || mode === 'reset') && <label className="block text-sm font-semibold">Confirm password<input className={`${inputClass} mt-1.5`} type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /></label>}
           {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
           {message && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
-          <button disabled={busy || !configured} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#E5A93C] px-5 py-3 font-bold text-black transition hover:bg-[#C99E3B] disabled:cursor-not-allowed disabled:opacity-60">{busy && <LoaderCircle className="h-4 w-4 animate-spin" />}{mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Update password' : 'Sign in'}</button>
+          <AnimatedButton
+            type="submit"
+            disabled={busy || !configured}
+            className="w-full rounded-xl bg-background px-5 py-3 text-sm font-semibold text-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              {busy && <LoaderCircle className="h-4 w-4 animate-spin" />}
+              {mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Update password' : 'Sign in'}
+            </span>
+          </AnimatedButton>
         </form>
         <div className="mt-5 flex flex-wrap justify-between gap-3 text-sm">
           {mode === 'login' && <><button onClick={() => onModeChange('forgot')} className="font-semibold text-[#9A6D16] hover:underline">Forgot password?</button><button onClick={() => onModeChange('signup')} className="font-semibold text-[#9A6D16] hover:underline">Create an account</button></>}
@@ -94,7 +110,7 @@ export function AuthPage({ mode, savePlanIntent = false, onModeChange, onBack, o
           {mode === 'forgot' && <button onClick={() => onModeChange('login')} className="font-semibold text-[#9A6D16] hover:underline">Back to sign in</button>}
           {mode === 'reset' && <span className="text-xs text-muted-foreground">Open this page from the password reset email.</span>}
         </div>
-      </div>
+      </motion.div>
     </section>
   )
 }

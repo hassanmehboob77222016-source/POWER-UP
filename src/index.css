@@ -36,18 +36,87 @@ body {
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Smooth custom scrollbars with golden touch */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+html {
+  scrollbar-width: none;
 }
-::-webkit-scrollbar-track {
-  background: #FAF6ED;
+
+html::-webkit-scrollbar {
+  display: none;
 }
-::-webkit-scrollbar-thumb {
-  background: rgba(201, 158, 59, 0.4);
-  border-radius: 9999px;
+
+@keyframes hero-light-down {
+  from { transform: translateY(-1080px); }
+  to { transform: translateY(1080px); }
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(229, 169, 60, 0.7);
+
+@keyframes hero-light-up {
+  from { transform: translateY(1080px); }
+  to { transform: translateY(-1080px); }
+}
+
+@keyframes powerup-loader-sweep {
+  100% {
+    background-size: 120%;
+  }
+}
+
+.hero-light-track {
+  animation-duration: var(--light-duration);
+  animation-delay: var(--light-delay);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.hero-light-track-down {
+  animation-name: hero-light-down;
+}
+
+.hero-light-track-up {
+  animation-name: hero-light-up;
+}
+
+.powerup-loader {
+  width: 96px;
+  height: 44px;
+  color: #e5a93c;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  padding: 3px;
+  background:
+    repeating-linear-gradient(90deg, currentColor 0 10px, rgba(0, 0, 0, 0) 0 15px) 0/0% no-repeat content-box content-box;
+  position: relative;
+  box-sizing: border-box;
+  animation: powerup-loader-sweep 2s infinite steps(6);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.18), 0 10px 24px rgba(229, 169, 60, 0.1);
+}
+
+.powerup-loader::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 100%;
+  width: 12px;
+  background:
+    linear-gradient(
+      rgba(0,0,0,0) calc(50% - 7px),
+      currentColor 0 calc(50% - 5px),
+      rgba(0,0,0,0) 0 calc(50% + 5px),
+      currentColor 0 calc(50% + 7px),
+      rgba(0,0,0,0) 0
+    ) left / 100% 100%,
+    linear-gradient(currentColor calc(50% - 5px), rgba(0,0,0,0) 0 calc(50% + 5px), currentColor 0) left / 2px 100%,
+    linear-gradient(rgba(0,0,0,0) calc(50% - 5px), currentColor 0 calc(50% + 5px), rgba(0,0,0,0) 0) right / 2px 100%;
+  background-repeat: no-repeat;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-light-track {
+    animation: none;
+  }
+
+  .powerup-loader {
+    animation: none;
+  }
 }

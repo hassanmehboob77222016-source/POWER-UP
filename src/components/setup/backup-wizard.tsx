@@ -2,10 +2,10 @@ import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Zap, Sun, Fuel, AlertTriangle, ArrowRight, ArrowLeft, 
-  Plus, Minus, Sparkles, Check, HelpCircle, Shield, Info
+  Plus, Minus, Sparkles, Check, Info
 } from 'lucide-react'
 import { SetupInputs, BackupType, BatteryChemistry, PriorityMode } from '@/lib/calculations'
-import { PRESET_APPLIANCES, Appliance } from '@/lib/appliances-data'
+import { PRESET_APPLIANCES } from '@/lib/appliances-data'
 
 interface BackupWizardProps {
   initialInputs?: SetupInputs | null
@@ -53,7 +53,6 @@ export function BackupWizard({ initialInputs, onSubmit, onCancel }: BackupWizard
   // Custom appliance inputs
   const [customName, setCustomName] = useState('')
   const [customWatts, setCustomWatts] = useState('')
-  const [customList, setCustomList] = useState<{ id: string; name: string; wattage: number }[]>([])
 
   // Category filter for appliances
   const [activeCategory, setActiveCategory] = useState<string>('all')
@@ -86,7 +85,6 @@ export function BackupWizard({ initialInputs, onSubmit, onCancel }: BackupWizard
     if (!customName.trim() || !customWatts) return
     const id = `custom-${Date.now()}`
     const w = parseInt(customWatts, 10) || 50
-    setCustomList(prev => [...prev, { id, name: customName.trim(), wattage: w }])
     setSelectedMap(prev => ({
       ...prev,
       [id]: { quantity: 1, customName: customName.trim(), customWatts: w }

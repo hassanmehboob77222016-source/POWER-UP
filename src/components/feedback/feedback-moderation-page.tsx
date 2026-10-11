@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Check, LoaderCircle, RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
