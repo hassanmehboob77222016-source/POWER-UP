@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Zap, Cpu, BatteryMedium, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 interface EnergyLoaderProps {
   onCancel?: () => void
@@ -27,19 +25,11 @@ export function EnergyLoader({ onCancel }: EnergyLoaderProps) {
 
   return (
     <div className="max-w-md mx-auto px-4 py-24 text-center">
-      {/* Central Pulsing Energy Core */}
-      <div className="relative w-28 h-28 mx-auto mb-8 flex items-center justify-center">
-        {/* Concentric expanding ripples */}
-        <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping opacity-75" />
-        <div className="absolute -inset-3 rounded-full border border-primary/30 animate-spin [animation-duration:8s]" />
-        
-        {/* Core sphere */}
-        <div className="relative w-20 h-20 rounded-full bg-gradient-to-tr from-amber-600 via-primary to-amber-300 p-0.5 shadow-xl shadow-primary/25 flex items-center justify-center text-black">
-          <Zap className="w-10 h-10 animate-bounce text-black" />
-        </div>
+      <div className="relative mx-auto mb-8 flex h-24 w-32 items-center justify-center">
+        <div className="powerup-loader" aria-label="Loading backup analysis" role="status" />
       </div>
 
-      <h3 className="text-2xl font-extrabold text-foreground tracking-tight mb-2">
+      <h3 className="mb-2 text-2xl font-extrabold tracking-tight text-foreground">
         Analyzing Backup Capacity
       </h3>
       <p className="text-xs sm:text-sm text-muted-foreground mb-6 max-w-xs mx-auto">

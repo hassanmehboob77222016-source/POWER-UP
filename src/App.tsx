@@ -83,7 +83,10 @@ export function App() {
     const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
     setCalcResults(results)
     try {
-      const plan = await generateAICoachAdvice(inputs, results)
+      const [plan] = await Promise.all([
+        generateAICoachAdvice(inputs, results),
+        new Promise<void>(resolve => setTimeout(resolve, 4500)),
+      ])
       setAiCoachPlan(plan); setCurrentScreen('results'); window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       console.error('Rule-based coach generation failed', err)
@@ -124,11 +127,12 @@ export function App() {
   }
 
   const handleEditAnswers = () => go('setup')
-  const handleReset = () => { setSavePlanAfterAuth(false); setUserInputs(null); setCalcResults(null); setAiCoachPlan(null); setSavedPlanId(null); setSavedPlanName('My backup plan'); setWizardKey(key => key + 1); go('home') }
   const handleSignOut = async () => {
     try { await signOut(); if (currentScreen === 'plans') go('home') }
     catch (err) { console.error('Sign out failed', err) }
   }
+
+  const footerVariant = currentScreen === 'home' ? 'full' : currentScreen === 'analysis' || currentScreen === 'ai-chat' ? 'hidden' : 'minimal'
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
@@ -152,14 +156,14 @@ export function App() {
 
       <main className="flex-1 pt-16">
         <Suspense fallback={<div role="status" className="mx-auto flex max-w-5xl items-center justify-center gap-2 px-4 py-16 text-sm text-muted-foreground">Loading PowerUp…</div>}>
-        {currentScreen === 'home' && <><HeroSection onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} /><BenefitsSection /></>}
+        {currentScreen === 'home' && <><HeroSection onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} onOpenAIChat={handleNavigateAIChat} /><BenefitsSection /></>}
 
         {/* Keep the wizard mounted while auth is shown so guest inputs survive sign-in. */}
         <div className={currentScreen === 'setup' ? 'pt-6 pb-16' : 'hidden'}>
           <BackupWizard key={wizardKey} initialInputs={userInputs} onSubmit={handleWizardSubmit} onCancel={handleNavigateHome} />
         </div>
         {currentScreen === 'analysis' && <div className="py-12"><EnergyLoader onCancel={handleEditAnswers} /></div>}
-        {currentScreen === 'results' && calcResults && userInputs && aiCoachPlan && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} aiPlan={aiCoachPlan} onEdit={handleEditAnswers} onReset={handleReset} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} /></div>}
+        {currentScreen === 'results' && calcResults && userInputs && aiCoachPlan && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} aiPlan={aiCoachPlan} onEdit={handleEditAnswers} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} /></div>}
         {currentScreen === 'results' && calcResults && userInputs && !aiCoachPlan && <div className="mx-auto max-w-xl px-4 py-16 text-center"><h1 className="text-2xl font-bold">Could not prepare the advice summary</h1><p className="mt-2 text-sm text-muted-foreground">Your inputs and calculated results are still available. Try generating the plan again.</p><button onClick={() => void handleWizardSubmit(userInputs)} className="mt-5 rounded-xl bg-primary px-5 py-3 font-bold text-black">Retry</button></div>}
         {currentScreen === 'dashboard' && <div className="pt-4 pb-16"><UnitMonitoringDashboard onOpenCalculator={handleStartNewPlan} /></div>}
         {currentScreen === 'plans' && <PlanLibraryPage onSignIn={() => openAuth('login', 'plans')} onOpen={handleOpenSavedPlan} />}
@@ -169,7 +173,7 @@ export function App() {
         {currentScreen === 'auth' && <AuthPage mode={authMode} savePlanIntent={savePlanAfterAuth} onModeChange={setAuthMode} onBack={finishAuth} onComplete={finishAuth} />}
         </Suspense>
       </main>
-      <Footer />
+      <Footer variant={footerVariant} />
     </div>
   )
 }

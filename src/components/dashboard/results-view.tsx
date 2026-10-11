@@ -1,9 +1,8 @@
 import React, { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
-  BatteryCharging, Clock, Zap, ShieldCheck, AlertTriangle, 
   ArrowUpRight, Copy, Check, Edit3, ChevronDown, ChevronUp, Bookmark, LoaderCircle,
-  Flame, Sparkles, CheckCircle2, RotateCcw, AlertCircle, Info, Calendar
+  Sparkles, Info, Calendar
 } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { SetupInputs, CalculationResults } from '@/lib/calculations'
@@ -14,7 +13,6 @@ interface ResultsViewProps {
   results: CalculationResults
   aiPlan: AICoachPlan
   onEdit: () => void
-  onReset: () => void
   onSave: (name: string) => Promise<void>
   onSignInToSave: () => void
   offerSaveAfterAuth: boolean
@@ -23,7 +21,7 @@ interface ResultsViewProps {
   savedName: string
 }
 
-export function ResultsView({ inputs, results, aiPlan, onEdit, onReset, onSave, onSignInToSave, offerSaveAfterAuth, canSave, isSaved, savedName }: ResultsViewProps) {
+export function ResultsView({ inputs, results, aiPlan, onEdit, onSave, onSignInToSave, offerSaveAfterAuth, canSave, isSaved, savedName }: ResultsViewProps) {
   const [copied, setCopied] = useState(false)
   const [showFormulaDetails, setShowFormulaDetails] = useState(false)
   const [showSaveForm, setShowSaveForm] = useState(false)
