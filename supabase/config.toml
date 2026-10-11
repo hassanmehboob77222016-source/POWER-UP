@@ -1,0 +1,9 @@
+project_id = "powerup"
+
+[db]
+# Supabase CLI's default local Postgres major version. Set this to match the
+# linked project's `show server_version;` result when validating a remote schema.
+major_version = 15
+
+[functions.ai-backup-advisor]
+verify_jwt = false
