@@ -3,7 +3,7 @@
 ## 1. Project Overview
 
 **Project:** PowerUp
-**Product:** AI Backup Power Coach  
+**Product:** Backup Power Planner
 **Theme:** Power, Water, Heat — Hackathon  
 **Primary problem:** Helping households manage their available backup power during load-shedding.
 
@@ -42,13 +42,13 @@ Priorities:
 - Subtle depth and restrained animation.
 - Strong contrast and accessible interactions.
 
-Avoid generic AI-generated layouts, excessive gradients, excessive glassmorphism, repetitive cards, unnecessary decorations, and oversized dashboards filled with meaningless statistics.
+Avoid generic templated layouts, excessive gradients, excessive glassmorphism, repetitive cards, unnecessary decorations, and oversized dashboards filled with meaningless statistics.
 
 ## 4. Main User Journey
 
 The application should follow this flow:
 
-Home → Backup Setup → AI Analysis → Personalized Backup Plan
+Home → Backup Setup → Calculated Backup Plan
 
 ### Screen 1: Home
 - Introduce PowerUp.
@@ -68,13 +68,7 @@ Collect the information required to understand the user's situation:
 
 Distinguish required and optional fields. Allow users to continue when certain technical specifications are unknown.
 
-### Screen 3: AI Analysis
-- Show a clear loading state while the request is processing.
-- Use a subtle energy-related animation.
-- Display understandable status messages.
-- Handle errors without leaving the user stuck.
-
-### Screen 4: Personalized Backup Plan
+### Screen 3: Personalized Backup Plan
 - Show a summary of the user's situation.
 - Present prioritized appliance recommendations.
 - Explain why the recommendations may help.
@@ -350,7 +344,7 @@ Use subtle, purposeful interactions:
 - Gentle card hover effects.
 - Smooth transitions between steps.
 - Scroll-triggered reveals where they improve the page.
-- A clear loading animation during AI processing.
+- A clear progress indication when a calculation takes time.
 
 Use CSS and existing UI components for depth, gradients, and animations.
 
@@ -365,20 +359,20 @@ Every visible control must work.
 - The home CTA opens the setup form.
 - Form inputs update correctly.
 - Required fields are validated.
-- Submitting the form invokes the actual AI workflow.
-- Loading states reflect real processing.
+- Submitting the form invokes the PowerUp calculation engine.
+- Progress states reflect real processing.
 - Results are based on the user's inputs.
 - Users can edit their answers and generate a revised plan.
 - Errors are handled clearly.
 - Copy Plan performs a real copy action.
 
-Do not replace the core AI feature with a static mock result. Clearly identify sample data used for demonstrations.
+Clearly identify sample data used for demonstrations.
 
 ## 10. Accuracy and Safety
 
 Do not fabricate battery capacity, appliance wattage, runtime estimates, electricity savings, or outage predictions.
 
-Use deterministic application code for numerical calculations and AI for interpreting the user's needs and explaining recommendations.
+Use deterministic application code for numerical calculations and rule-based logic for recommendations.
 
 When technical details are missing, explain the limitation instead of presenting an unsupported estimate.
 
@@ -406,8 +400,8 @@ Respect keyboard navigation, visible focus indicators, readable contrast, and re
 1. Inspect the project and reference screenshots.
 2. Confirm the extracted palette and proposed screen structure.
 3. Build the core user journey and form.
-4. Implement the AI integration and result handling.
-5. Add the supported calculation logic.
+4. Implement calculation and result handling.
+5. Add supported recommendation logic.
 6. Apply the design system consistently.
 7. Add animations and visual polish.
 8. Test functionality, responsiveness, and error states.
@@ -416,7 +410,7 @@ Respect keyboard navigation, visible focus indicators, readable contrast, and re
 
 The application should:
 - Look consistent with the selected references.
-- Have a coherent home page, form, loading state, and results screen.
+- Have a coherent home page, form, and results screen.
 - Provide meaningful personalized recommendations.
 - Avoid false or unsupported technical estimates.
 - Work on desktop and mobile.

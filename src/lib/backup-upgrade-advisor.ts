@@ -1,6 +1,5 @@
 import type { Appliance } from '@/lib/appliances-data'
 import { calculateBackupPlan, type CalculationResults, type SetupInputs } from '@/lib/calculations'
-import { toSetupInputs, type BackupChatState } from '@/lib/backup-chat'
 
 export interface BackupUpgradeScenario {
   id: string
@@ -24,7 +23,9 @@ function scenario(id: string, title: string, description: string, inputs: SetupI
   const inverterOverloaded = checkInverterOverload(inputs, results)
   return {
     id, title, description, inputs, results,
-    meetsTarget: results.isCalculable && results.isSufficient && inverterOverloaded === false && results.surgeWarning === false,
+    // This marks energy/runtime and continuous-load fit only. Surge compatibility
+    // remains an explicit separate check when any surge specification is missing.
+    meetsTarget: results.isCalculable && results.isSufficient === true && inverterOverloaded === false,
     inverterOverloaded,
     surgeUnverified: inputs.inverterRatingWatts === null || results.surgeWarning === null,
     notes,
@@ -36,26 +37,11 @@ function scenario(id: string, title: string, description: string, inputs: SetupI
  * existing PowerUp calculator. This module contains no runtime/load formulas.
  */
 export function buildBackupUpgradeScenarios(
-  state: BackupChatState,
   currentInputs: SetupInputs,
   catalog: Appliance[],
 ): { scenarios: BackupUpgradeScenario[]; unavailableReason: string | null } {
   const current = scenario('current', 'Current setup', 'Your stated battery bank and appliance list.', currentInputs, catalog)
   const scenarios = [current]
-
-  const essentialState = { ...state, appliances: state.appliances.filter(item => !item.excluded && item.priority === 'essential') }
-  if (essentialState.appliances.length > 0 && essentialState.appliances.length < state.appliances.filter(item => !item.excluded).length) {
-    const reducedInputs = toSetupInputs(essentialState, catalog)
-    const reduced = scenario(
-      'reduced-load',
-      'Essential appliances only',
-      'Keeps appliances you marked essential and removes the others from this estimate.',
-      reducedInputs,
-      catalog,
-      ['This comparison is available because you marked appliance priorities.'],
-    )
-    if (reduced.results.isCalculable) scenarios.push(reduced)
-  }
 
   if (current.meetsTarget) return { scenarios, unavailableReason: null }
 

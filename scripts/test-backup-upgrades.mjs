@@ -5,64 +5,53 @@ import { createServer } from 'vite'
 const vite = await createServer({ configFile: 'vite.config.ts', server: { middlewareMode: true }, appType: 'custom' })
 after(() => vite.close())
 
-const [{ PRESET_APPLIANCES }, { createEmptyBackupChatState, nextRequiredQuestion, sanitizeBackupChatResponse, toSetupInputs }, { calculateBackupPlan }, { buildBackupUpgradeScenarios }] = await Promise.all([
+const [{ PRESET_APPLIANCES }, { calculateBackupPlan }, { buildBackupUpgradeScenarios }, { generateBackupAdvice }] = await Promise.all([
   vite.ssrLoadModule('/src/lib/appliances-data.ts'),
-  vite.ssrLoadModule('/src/lib/backup-chat.ts'),
   vite.ssrLoadModule('/src/lib/calculations.ts'),
   vite.ssrLoadModule('/src/lib/backup-upgrade-advisor.ts'),
+  vite.ssrLoadModule('/src/lib/backup-advice.ts'),
 ])
 
-function baseState({ ampHours = 20, inverterRatingWatts = 1000, surgeWatts = 1500, quantity = 1 } = {}) {
+function baseInputs({ ampHours = 20, inverterRatingWatts = 1000, surgeWatts = 1500, quantity = 1 } = {}) {
   return {
-    ...createEmptyBackupChatState(),
-    backupType: 'inverter', outageHours: 4, batteryChemistry: 'lifepo4', voltage: 24, ampHours,
-    inverterRatingWatts, surgeWatts,
-    appliances: [
-      { name: 'LED lights', catalogId: 'led-lights', quantity: 4, wattage: null, category: 'lighting', desiredHours: null, priority: 'essential', excluded: false },
-      { name: 'fan', catalogId: 'ceiling-fan', quantity, wattage: null, category: 'cooling', desiredHours: null, priority: 'normal', excluded: false },
-      { name: 'refrigerator', catalogId: 'inverter-fridge', quantity: 1, wattage: null, category: 'cooling', desiredHours: null, priority: 'normal', excluded: false },
+    backupType: 'inverter', hasBattery: true, batteryChemistry: 'lifepo4', voltage: 24, ampHours,
+    directKwh: null, isCapacityUnknown: false, inverterRatingWatts, inverterRatingVA: null,
+    inverterSurgeWatts: surgeWatts, typicalOutageHours: 4, priorityMode: 'balanced', notes: '',
+    selectedAppliances: [
+      { applianceId: 'led-lights', quantity: 4 },
+      { applianceId: 'ceiling-fan', quantity },
+      { applianceId: 'inverter-fridge', quantity: 1 },
     ],
   }
 }
 
 test('current configuration that covers the outage is not offered as an upgrade', () => {
-  const state = baseState({ ampHours: 200 })
-  const inputs = toSetupInputs(state, PRESET_APPLIANCES)
-  const comparison = buildBackupUpgradeScenarios(state, inputs, PRESET_APPLIANCES)
+  const inputs = baseInputs({ ampHours: 200 })
+  const comparison = buildBackupUpgradeScenarios(inputs, PRESET_APPLIANCES)
   assert.equal(comparison.scenarios[0].meetsTarget, true)
   assert.equal(comparison.scenarios.some(item => item.id.startsWith('capacity-')), false)
 })
 
 test('short runtime offers only capacity candidates that pass engine and inverter checks', () => {
-  const state = baseState({ ampHours: 20 })
-  const inputs = toSetupInputs(state, PRESET_APPLIANCES)
-  const comparison = buildBackupUpgradeScenarios(state, inputs, PRESET_APPLIANCES)
+  const comparison = buildBackupUpgradeScenarios(baseInputs(), PRESET_APPLIANCES)
   assert.equal(comparison.scenarios[0].results.isSufficient, false)
   assert.ok(comparison.scenarios.some(item => item.id.startsWith('capacity-') && item.meetsTarget))
-  assert.ok(comparison.scenarios.filter(item => item.id.startsWith('capacity-')).every(item => item.results.isCalculable && item.results.isSufficient && item.inverterOverloaded === false && item.results.surgeWarning === false))
+  assert.ok(comparison.scenarios.filter(item => item.id.startsWith('capacity-')).every(item => item.results.isCalculable && item.results.isSufficient === true && item.inverterOverloaded === false && (item.results.surgeWarning === false || item.surgeUnverified)))
 })
 
 test('unknown battery specifications do not produce guessed capacity candidates', () => {
-  const state = { ...baseState(), batterySpecsUnknown: true }
-  const inputs = toSetupInputs(state, PRESET_APPLIANCES)
-  const comparison = buildBackupUpgradeScenarios(state, inputs, PRESET_APPLIANCES)
+  const inputs = { ...baseInputs(), isCapacityUnknown: true }
+  const comparison = buildBackupUpgradeScenarios(inputs, PRESET_APPLIANCES)
   assert.equal(comparison.scenarios.some(item => item.id.startsWith('capacity-')), false)
   assert.match(comparison.unavailableReason, /voltage\/capacity and chemistry/i)
 })
 
-test('unknown appliance wattage triggers a question rather than a guessed preset', () => {
-  const state = { ...baseState(), appliances: [{ name: 'unknown appliance', catalogId: null, quantity: 1, wattage: null, category: null, desiredHours: null, priority: null, excluded: false }] }
-  assert.equal(nextRequiredQuestion(state).field, 'applianceWattage')
-  assert.equal(toSetupInputs(state, PRESET_APPLIANCES).selectedAppliances.length, 0)
-})
-
 test('continuous and surge overloads are detected and larger batteries are not offered as a fix', () => {
-  const state = {
-    ...baseState({ ampHours: 400, inverterRatingWatts: 1500, surgeWatts: 1700 }),
-    appliances: [{ name: 'microwave', catalogId: 'microwave', quantity: 2, wattage: null, category: 'kitchen', desiredHours: null, priority: 'normal', excluded: false }],
+  const inputs = {
+    ...baseInputs({ ampHours: 400, inverterRatingWatts: 1500, surgeWatts: 1700 }),
+    selectedAppliances: [{ applianceId: 'microwave', quantity: 2 }],
   }
-  const inputs = toSetupInputs(state, PRESET_APPLIANCES)
-  const comparison = buildBackupUpgradeScenarios(state, inputs, PRESET_APPLIANCES)
+  const comparison = buildBackupUpgradeScenarios(inputs, PRESET_APPLIANCES)
   assert.equal(comparison.scenarios[0].inverterOverloaded, true)
   assert.equal(comparison.scenarios[0].results.surgeWarning, true)
   assert.equal(comparison.scenarios.some(item => item.id.startsWith('capacity-')), false)
@@ -70,43 +59,51 @@ test('continuous and surge overloads are detected and larger batteries are not o
 })
 
 test('quantity edits change the load when scenarios are recalculated', () => {
-  const one = baseState({ ampHours: 200, quantity: 1 })
-  const three = baseState({ ampHours: 200, quantity: 3 })
-  const oneResults = calculateBackupPlan(toSetupInputs(one, PRESET_APPLIANCES), PRESET_APPLIANCES)
-  const threeResults = calculateBackupPlan(toSetupInputs(three, PRESET_APPLIANCES), PRESET_APPLIANCES)
+  const one = baseInputs({ ampHours: 200, quantity: 1 })
+  const three = baseInputs({ ampHours: 200, quantity: 3 })
+  const oneResults = calculateBackupPlan(one, PRESET_APPLIANCES)
+  const threeResults = calculateBackupPlan(three, PRESET_APPLIANCES)
   assert.ok(threeResults.continuousLoadWatts > oneResults.continuousLoadWatts)
   assert.ok(threeResults.smartRuntimeHours < oneResults.smartRuntimeHours)
 })
 
-test('invalid extracted values are discarded before they reach the calculation inputs', () => {
-  const response = sanitizeBackupChatResponse({
-    assistantMessage: 'I need a few corrected details.', questionField: 'none',
-    state: { ...baseState(), voltage: 0, ampHours: -4, outageHours: 999, inverterRatingWatts: -1,
-      appliances: [{ name: 'fan', catalogId: 'ceiling-fan', quantity: 0, priority: 'normal' }] },
-  }, PRESET_APPLIANCES, [{ role: 'user', content: 'Plan for a fan.' }])
-  assert.ok(response)
-  assert.equal(response.state.voltage, null)
-  assert.equal(response.state.ampHours, null)
-  assert.equal(response.state.outageHours, null)
-  assert.equal(response.state.inverterRatingWatts, null)
-  assert.equal(response.state.appliances.length, 0)
+test('wattage and appliance operating hours both change the energy estimate', () => {
+  const base = { ...baseInputs({ ampHours: 200 }), selectedAppliances: [{ applianceId: 'custom-monitor', customName: 'Monitor', watts: 100, quantity: 1, operatingHours: 2, priority: 'critical', mustRun: true }] }
+  const baseline = calculateBackupPlan(base, PRESET_APPLIANCES)
+  const moreHours = calculateBackupPlan({ ...base, selectedAppliances: [{ ...base.selectedAppliances[0], operatingHours: 4 }] }, PRESET_APPLIANCES)
+  const moreWatts = calculateBackupPlan({ ...base, selectedAppliances: [{ ...base.selectedAppliances[0], watts: 200 }] }, PRESET_APPLIANCES)
+  assert.equal(baseline.totalConnectedLoadWatts, 100)
+  assert.equal(baseline.estimatedEnergyWh, 200)
+  assert.equal(moreHours.estimatedEnergyWh, 400)
+  assert.equal(moreWatts.estimatedEnergyWh, 400)
 })
 
-test('contradictory battery capacity figures pause runtime estimation and ask for clarification', () => {
-  const source = { ...baseState({ ampHours: 150 }), capacityKwh: 8 }
-  const response = sanitizeBackupChatResponse({ assistantMessage: 'Please confirm the battery label.', questionField: 'batterySpecs', state: source }, PRESET_APPLIANCES, [{ role: 'user', content: '24V 150Ah battery, total bank is 8kWh.' }])
-  assert.ok(response)
-  assert.equal(response.state.batterySpecsConflict, true)
-  assert.match(nextRequiredQuestion(response.state).question, /do not agree/i)
-  assert.equal(toSetupInputs(response.state, PRESET_APPLIANCES).isCapacityUnknown, true)
+test('unknown battery specifications still show appliance load and energy without inventing runtime', () => {
+  const unknown = { ...baseInputs(), isCapacityUnknown: true, selectedAppliances: [{ applianceId: 'ceiling-fan', quantity: 2, watts: 65, operatingHours: 3 }] }
+  const results = calculateBackupPlan(unknown, PRESET_APPLIANCES)
+  assert.equal(results.totalConnectedLoadWatts, 130)
+  assert.equal(results.estimatedEnergyWh, 390)
+  assert.equal(results.usableCapacityWh, null)
+  assert.equal(results.smartRuntimeHours, null)
+  assert.equal(results.isSufficient, null)
+})
+
+test('rule-based outage recommendations are generated from calculated inputs without a service call', () => {
+  const inputs = baseInputs({ ampHours: 200 })
+  const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
+  const advice = generateBackupAdvice(inputs, results)
+  assert.match(advice.verdictTitle, /Estimated runtime covers/)
+  assert.ok(advice.tacticalRecommendations.length > 0)
+  assert.ok(advice.timelineSchedule.some(item => item.action.includes('plan for up to') && item.appliancesStatus.includes('unit')))
+  assert.ok(advice.assumptionsNotes.some(note => note.includes('85%')))
 })
 
 test('selected upgrade inputs survive a saved-plan-shaped JSON round trip and recalculate', () => {
-  const state = baseState({ ampHours: 20 })
-  const initial = buildBackupUpgradeScenarios(state, toSetupInputs(state, PRESET_APPLIANCES), PRESET_APPLIANCES)
-  const selected = initial.scenarios.find(item => item.id.startsWith('capacity-') && item.meetsTarget)
+  const comparison = buildBackupUpgradeScenarios(baseInputs(), PRESET_APPLIANCES)
+  const selected = comparison.scenarios.find(item => item.id.startsWith('capacity-') && item.meetsTarget)
   assert.ok(selected)
   const savedRecord = {
+    plan_name: 'Test home system',
     backup_configuration: selected.inputs,
     selected_appliances: selected.inputs.selectedAppliances,
     calculation_results: { calculation: selected.results, advice: { verdictTitle: 'Test', verdictDescription: 'Test advice', tacticalRecommendations: [], timelineSchedule: [], assumptionsNotes: [] } },
@@ -114,5 +111,6 @@ test('selected upgrade inputs survive a saved-plan-shaped JSON round trip and re
   const reopened = JSON.parse(JSON.stringify(savedRecord))
   const recalculated = calculateBackupPlan(reopened.backup_configuration, PRESET_APPLIANCES)
   assert.equal(recalculated.smartRuntimeHours, selected.results.smartRuntimeHours)
+  assert.equal(reopened.plan_name, 'Test home system')
   assert.deepEqual(reopened.selected_appliances, JSON.parse(JSON.stringify(selected.inputs.selectedAppliances)))
 })

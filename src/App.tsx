@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import Lenis from 'lenis'
 import { NotchNavbar } from '@/components/navbar/notch-navbar'
 import { HeroSection } from '@/components/home/hero-section'
@@ -6,29 +6,55 @@ import { BenefitsSection } from '@/components/home/benefits-section'
 import { Footer } from '@/components/home/footer'
 import { BackupWizard } from '@/components/setup/backup-wizard'
 import type { AuthMode } from '@/components/auth/auth-page'
-const EnergyLoader = lazy(() => import('@/components/analysis/energy-loader').then(module => ({ default: module.EnergyLoader })))
 const ResultsView = lazy(() => import('@/components/dashboard/results-view').then(module => ({ default: module.ResultsView })))
 const UnitMonitoringDashboard = lazy(() => import('@/components/dashboard/unit-monitoring-dashboard').then(module => ({ default: module.UnitMonitoringDashboard })))
 const AuthPage = lazy(() => import('@/components/auth/auth-page').then(module => ({ default: module.AuthPage })))
 const PlanLibraryPage = lazy(() => import('@/components/plans/plan-library-page').then(module => ({ default: module.PlanLibraryPage })))
 const FeedbackPage = lazy(() => import('@/components/feedback/feedback-page').then(module => ({ default: module.FeedbackPage })))
 const FeedbackModerationPage = lazy(() => import('@/components/feedback/feedback-moderation-page').then(module => ({ default: module.FeedbackModerationPage })))
-const AIBackupChatPage = lazy(() => import('@/components/chat/ai-backup-chat-page').then(module => ({ default: module.AIBackupChatPage })))
+const AiAdvisorPage = lazy(() => import('@/components/advisor/ai-advisor-page').then(module => ({ default: module.AiAdvisorPage })))
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
 import type { Json } from '@/lib/database.types'
 import { SetupInputs, CalculationResults, calculateBackupPlan } from '@/lib/calculations'
-import { AICoachPlan, generateAICoachAdvice } from '@/lib/ai-service'
+import { generateBackupAdvice, type BackupAdvice } from '@/lib/backup-advice'
+import { buildBackupUpgradeScenarios } from '@/lib/backup-upgrade-advisor'
 import { PRESET_APPLIANCES } from '@/lib/appliances-data'
+import { requestAdvisorExplanation } from '@/lib/advisor-client'
+import type { AdvisorResponseV1 } from '@/lib/ai-advisor-contract'
+import type { AdvisorLocale } from '@/lib/ai-advisor-contract'
 
-type Screen = 'home' | 'setup' | 'analysis' | 'results' | 'dashboard' | 'plans' | 'feedback' | 'moderation' | 'ai-chat' | 'auth'
-interface AuthDraft { screen: Screen; userInputs: SetupInputs | null; calcResults: CalculationResults | null; aiCoachPlan: AICoachPlan | null; savedPlanId: string | null; savedPlanName: string; savePlanAfterAuth: boolean }
+type Screen = 'home' | 'advisor' | 'setup' | 'results' | 'dashboard' | 'plans' | 'feedback' | 'moderation' | 'auth'
+interface AuthDraft { screen: Screen; userInputs: SetupInputs | null; calcResults: CalculationResults | null; backupAdvice: BackupAdvice | null; savedPlanId: string | null; savedPlanName: string; savePlanAfterAuth: boolean; advisorLocale?: AdvisorLocale }
 const AUTH_DRAFT_KEY = 'powerup-auth-return'
+const PENDING_PLAN_ID_KEY = 'powerup-pending-plan-id'
+
+function toPlanSaveError(error: { code?: string; message?: string }) {
+  const detail = [error.message, error.code ? `(${error.code})` : null].filter(Boolean).join(' ')
+  if (error.code === 'PGRST205') {
+    return new Error(`PowerUp cannot find the backup_plans table in the Supabase project configured for this app. Verify VITE_SUPABASE_URL points to the intended project and that the saved-plan migrations have been applied. No plan was saved. ${detail}`)
+  }
+  if (error.code === '42501') {
+    return new Error(`Supabase denied saving this plan. Confirm that the plan ID insert grant migration 20261012020000 has been applied to this project and that the signed-in user owns the plan. ${detail}`)
+  }
+  return new Error(detail || 'Supabase returned an unknown plan save error.')
+}
+
+function readPendingPlanId() {
+  try { return sessionStorage.getItem(PENDING_PLAN_ID_KEY) } catch { return null }
+}
 
 function readAuthDraft(): AuthDraft | null {
   try {
     const saved = sessionStorage.getItem(AUTH_DRAFT_KEY)
-    return saved ? JSON.parse(saved) as AuthDraft : null
+    if (!saved) return null
+    const draft = JSON.parse(saved) as AuthDraft
+    const validScreens: Screen[] = ['home', 'advisor', 'setup', 'results', 'dashboard', 'plans', 'feedback', 'moderation', 'auth']
+    if (!validScreens.includes(draft.screen)) return null
+    if (!draft.backupAdvice && draft.userInputs && draft.calcResults) {
+      return { ...draft, backupAdvice: generateBackupAdvice(draft.userInputs, draft.calcResults) }
+    }
+    return draft
   } catch { return null }
 }
 
@@ -40,12 +66,35 @@ export function App() {
   const [returnScreen, setReturnScreen] = useState<Screen>(authDraft?.screen ?? 'home')
   const [userInputs, setUserInputs] = useState<SetupInputs | null>(authDraft?.userInputs ?? null)
   const [calcResults, setCalcResults] = useState<CalculationResults | null>(authDraft?.calcResults ?? null)
-  const [aiCoachPlan, setAiCoachPlan] = useState<AICoachPlan | null>(authDraft?.aiCoachPlan ?? null)
+  const [backupAdvice, setBackupAdvice] = useState<BackupAdvice | null>(authDraft?.backupAdvice ?? null)
   const [savedPlanId, setSavedPlanId] = useState<string | null>(authDraft?.savedPlanId ?? null)
   const [savedPlanName, setSavedPlanName] = useState(authDraft?.savedPlanName ?? 'My backup plan')
   const [savePlanAfterAuth, setSavePlanAfterAuth] = useState(authDraft?.savePlanAfterAuth ?? false)
   const [wizardKey, setWizardKey] = useState(0)
-  const [hasVisitedAIChat, setHasVisitedAIChat] = useState(authDraft?.screen === 'ai-chat')
+  const [wizardStartStep, setWizardStartStep] = useState(1)
+  const pendingPlanId = useRef<string | null>(readPendingPlanId())
+  const [advisorJourney, setAdvisorJourney] = useState(false)
+  const [advisorLocale, setAdvisorLocale] = useState<AdvisorLocale>(authDraft?.advisorLocale ?? 'en')
+  const [aiExplanation, setAiExplanation] = useState<Extract<AdvisorResponseV1, { action: 'explain' }> | null>(null)
+  const [aiExplanationStatus, setAiExplanationStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [aiExplanationError, setAiExplanationError] = useState('')
+  const explanationRequestId = useRef(0)
+
+  const clearExplanation = () => { explanationRequestId.current += 1; setAiExplanation(null); setAiExplanationStatus('idle'); setAiExplanationError('') }
+  const explainPlan = async (inputs: SetupInputs, results: CalculationResults, locale: AdvisorLocale = advisorLocale) => {
+    const requestId = ++explanationRequestId.current
+    setAiExplanation(null); setAiExplanationStatus('loading'); setAiExplanationError('')
+    try {
+      const response = await requestAdvisorExplanation(inputs, results, locale)
+      if (requestId !== explanationRequestId.current) return
+      setAiExplanation(response); setAiExplanationStatus('ready')
+    } catch (error) {
+      if (requestId !== explanationRequestId.current) return
+      setAiExplanation(null)
+      setAiExplanationError(error instanceof Error ? error.message : 'The AI Advisor is unavailable.')
+      setAiExplanationStatus('error')
+    }
+  }
 
   useEffect(() => {
     const lenis = new Lenis({ duration: 1.2, easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true })
@@ -66,73 +115,88 @@ export function App() {
   const go = (screen: Screen) => { setCurrentScreen(screen); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   const handleNavigateHome = () => go('home')
   const handleNavigateCalculator = () => go('setup')
-  const handleStartNewPlan = () => { setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setAiCoachPlan(null); setWizardKey(key => key + 1); go('setup') }
+  const handleNavigateAdvisor = () => handleStartAdvisor()
+  const handleStartNewPlan = () => { clearExplanation(); setAdvisorJourney(false); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory for this editing session. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup') }
+  const handleStartAdvisor = () => { clearExplanation(); setAdvisorJourney(true); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); go('advisor') }
+  const handleAdvisorContinue = (inputs: SetupInputs, locale: AdvisorLocale) => { setAdvisorJourney(true); setAdvisorLocale(locale); setUserInputs(inputs); setCalcResults(null); setBackupAdvice(null); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup') }
   const handleNavigateDashboard = () => go('dashboard')
-  const handleNavigateAIChat = () => { setHasVisitedAIChat(true); go('ai-chat') }
   const openAuth = (mode: AuthMode = 'login', destination: Screen = currentScreen, offerSaveAfterAuth = false) => {
     setAuthMode(mode); setReturnScreen(destination)
     const shouldOfferSave = offerSaveAfterAuth || savePlanAfterAuth
     if (offerSaveAfterAuth) setSavePlanAfterAuth(true)
-    try { sessionStorage.setItem(AUTH_DRAFT_KEY, JSON.stringify({ screen: destination, userInputs, calcResults, aiCoachPlan, savedPlanId, savedPlanName, savePlanAfterAuth: shouldOfferSave } satisfies AuthDraft)) } catch { /* Session storage may be unavailable; in-app auth still preserves mounted state. */ }
+    try { sessionStorage.setItem(AUTH_DRAFT_KEY, JSON.stringify({ screen: destination, userInputs, calcResults, backupAdvice, savedPlanId, savedPlanName, savePlanAfterAuth: shouldOfferSave, advisorLocale } satisfies AuthDraft)) } catch { /* Session storage may be unavailable; in-app auth still preserves mounted state. */ }
     go('auth')
   }
   const finishAuth = () => { try { sessionStorage.removeItem(AUTH_DRAFT_KEY) } catch { /* Ignore unavailable storage. */ } if (!user) setSavePlanAfterAuth(false); go(returnScreen) }
 
-  const handleWizardSubmit = async (inputs: SetupInputs) => {
-    setUserInputs(inputs); setCurrentScreen('analysis'); window.scrollTo({ top: 0, behavior: 'smooth' })
+  const handleWizardSubmit = (inputs: SetupInputs) => {
     const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
+    const advice = generateBackupAdvice(inputs, results)
     setCalcResults(results)
-    try {
-      const [plan] = await Promise.all([
-        generateAICoachAdvice(inputs, results),
-        new Promise<void>(resolve => setTimeout(resolve, 4500)),
-      ])
-      setAiCoachPlan(plan); setCurrentScreen('results'); window.scrollTo({ top: 0, behavior: 'smooth' })
-    } catch (err) {
-      console.error('Rule-based coach generation failed', err)
-      setAiCoachPlan(null); setCurrentScreen('results')
-    }
+    setUserInputs(inputs)
+    setBackupAdvice(advice)
+    clearExplanation()
+    go('results')
+    if (advisorJourney) void explainPlan(inputs, results, advisorLocale)
   }
 
-  const handleOpenSavedPlan = (id: string, name: string, inputs: SetupInputs, results: CalculationResults, advice: AICoachPlan) => {
-    setSavedPlanId(id); setSavedPlanName(name); setUserInputs(inputs); setCalcResults(results); setAiCoachPlan(advice); setWizardKey(key => key + 1); go('results')
+  const handleOpenSavedPlan = (id: string, name: string, inputs: SetupInputs) => {
+    const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
+    const advice = generateBackupAdvice(inputs, results)
+    clearExplanation(); setAdvisorJourney(false); setAdvisorLocale('en'); pendingPlanId.current = null; try { sessionStorage.removeItem(PENDING_PLAN_ID_KEY) } catch { /* Ignore unavailable storage. */ } setSavedPlanId(id); setSavedPlanName(name); setUserInputs(inputs); setCalcResults(results); setBackupAdvice(advice); setWizardStartStep(1); setWizardKey(key => key + 1); go('results')
   }
 
-  const handleAIPlanReady = (inputs: SetupInputs, results: CalculationResults, advice: AICoachPlan) => {
-    setUserInputs(inputs); setCalcResults(results); setAiCoachPlan(advice); setSavedPlanId(null); setSavedPlanName('My AI backup plan')
-  }
+  const upgradeComparison = useMemo(() => userInputs ? buildBackupUpgradeScenarios(userInputs, PRESET_APPLIANCES) : null, [userInputs])
 
   const handleSavePlan = async (name: string) => {
-    if (!supabase || !user || !userInputs || !calcResults || !aiCoachPlan) throw new Error('Sign in and generate a plan before saving it.')
+    if (!supabase || !user || !userInputs || !calcResults || !backupAdvice) throw new Error('Sign in and generate a plan before saving it.')
     const record = {
       user_id: user.id,
       plan_name: name.trim(),
       backup_configuration: userInputs as unknown as Json,
       selected_appliances: userInputs.selectedAppliances as unknown as Json,
-      calculation_results: { calculation: calcResults, advice: aiCoachPlan } as unknown as Json,
+      calculation_results: { calculation: calcResults, advice: backupAdvice } as unknown as Json,
     }
     if (savedPlanId) {
       const { user_id: _owner, ...planFields } = record
       const { data, error } = await supabase.from('backup_plans').update(planFields).eq('id', savedPlanId).eq('user_id', user.id).select('id').maybeSingle()
-      if (error) throw error
+      if (error) throw toPlanSaveError(error)
       if (!data) throw new Error('This saved plan is no longer available to your account. Refresh My Plans and try again.')
     } else {
-      const { data, error } = await supabase.from('backup_plans').insert(record).select('id').single()
-      if (error) throw error
-      setSavedPlanId(data.id)
+      const id = pendingPlanId.current ?? crypto.randomUUID()
+      pendingPlanId.current = id
+      const { data, error } = await supabase.from('backup_plans').insert({ ...record, id }).select('id').single()
+      if (error?.code === '23505') {
+        // Recover a request whose insert succeeded but whose response was lost.
+        // Avoid an upsert that would try to update the protected owner/id columns.
+        const { data: existing, error: lookupError } = await supabase.from('backup_plans').select('id').eq('id', id).eq('user_id', user.id).maybeSingle()
+        if (lookupError) throw toPlanSaveError(lookupError)
+        if (!existing) throw toPlanSaveError(error)
+        const { user_id: _owner, ...planFields } = record
+        const { data: updated, error: updateError } = await supabase.from('backup_plans').update(planFields).eq('id', id).eq('user_id', user.id).select('id').maybeSingle()
+        if (updateError) throw toPlanSaveError(updateError)
+        if (!updated) throw new Error('This saved plan is no longer available to your account. Refresh My Plans and try again.')
+        setSavedPlanId(updated.id)
+      } else {
+        if (error) throw toPlanSaveError(error)
+        setSavedPlanId(data.id)
+      }
+      pendingPlanId.current = null
+      try { sessionStorage.removeItem(PENDING_PLAN_ID_KEY) } catch { /* Ignore unavailable storage. */ }
     }
     setSavedPlanName(name.trim())
     setSavePlanAfterAuth(false)
     try { sessionStorage.removeItem(AUTH_DRAFT_KEY) } catch { /* Ignore unavailable storage. */ }
   }
 
-  const handleEditAnswers = () => go('setup')
+  const handleEditAnswers = () => { clearExplanation(); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup') }
+  const handleEditBatteryDetails = () => { clearExplanation(); setWizardStartStep(2); setWizardKey(key => key + 1); go('setup') }
   const handleSignOut = async () => {
     try { await signOut(); if (currentScreen === 'plans') go('home') }
     catch (err) { console.error('Sign out failed', err) }
   }
 
-  const footerVariant = currentScreen === 'home' ? 'full' : currentScreen === 'analysis' || currentScreen === 'ai-chat' ? 'hidden' : 'minimal'
+  const footerVariant = currentScreen === 'home' ? 'full' : 'minimal'
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
@@ -140,36 +204,33 @@ export function App() {
         currentScreen={currentScreen}
         onNavigateHome={handleNavigateHome}
         onNavigateCalculator={handleNavigateCalculator}
+        onNavigateAdvisor={handleNavigateAdvisor}
         onNavigateDashboard={handleNavigateDashboard}
         onNavigatePlans={() => go('plans')}
         onNavigateFeedback={() => go('feedback')}
         onNavigateModeration={() => go('moderation')}
-        onNavigateAIChat={handleNavigateAIChat}
         onAuthAction={() => openAuth('login')}
         onSignUp={() => openAuth('signup')}
         onSignOut={() => void handleSignOut()}
         displayName={displayName}
         isSignedIn={Boolean(user)}
         isFeedbackAdmin={isFeedbackAdmin}
-        onStartSetup={handleStartNewPlan}
       />
 
       <main className="flex-1 pt-16">
         <Suspense fallback={<div role="status" className="mx-auto flex max-w-5xl items-center justify-center gap-2 px-4 py-16 text-sm text-muted-foreground">Loading PowerUp…</div>}>
-        {currentScreen === 'home' && <><HeroSection onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} onOpenAIChat={handleNavigateAIChat} /><BenefitsSection /></>}
+        {currentScreen === 'home' && <><HeroSection onStartAdvisor={handleStartAdvisor} onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} /><BenefitsSection /></>}
+        {currentScreen === 'advisor' && <AiAdvisorPage onContinue={handleAdvisorContinue} onManual={handleStartNewPlan} />}
 
         {/* Keep the wizard mounted while auth is shown so guest inputs survive sign-in. */}
         <div className={currentScreen === 'setup' ? 'pt-6 pb-16' : 'hidden'}>
-          <BackupWizard key={wizardKey} initialInputs={userInputs} onSubmit={handleWizardSubmit} onCancel={handleNavigateHome} />
+          <BackupWizard key={wizardKey} initialInputs={userInputs} initialStep={wizardStartStep} onSubmit={handleWizardSubmit} onCancel={handleNavigateHome} />
         </div>
-        {currentScreen === 'analysis' && <div className="py-12"><EnergyLoader onCancel={handleEditAnswers} /></div>}
-        {currentScreen === 'results' && calcResults && userInputs && aiCoachPlan && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} aiPlan={aiCoachPlan} onEdit={handleEditAnswers} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} /></div>}
-        {currentScreen === 'results' && calcResults && userInputs && !aiCoachPlan && <div className="mx-auto max-w-xl px-4 py-16 text-center"><h1 className="text-2xl font-bold">Could not prepare the advice summary</h1><p className="mt-2 text-sm text-muted-foreground">Your inputs and calculated results are still available. Try generating the plan again.</p><button onClick={() => void handleWizardSubmit(userInputs)} className="mt-5 rounded-xl bg-primary px-5 py-3 font-bold text-black">Retry</button></div>}
-        {currentScreen === 'dashboard' && <div className="pt-4 pb-16"><UnitMonitoringDashboard onOpenCalculator={handleStartNewPlan} /></div>}
+        {currentScreen === 'results' && calcResults && userInputs && backupAdvice && upgradeComparison && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} advice={backupAdvice} upgradeScenarios={upgradeComparison.scenarios} upgradeUnavailableReason={upgradeComparison.unavailableReason} onEdit={handleEditAnswers} onEditBattery={handleEditBatteryDetails} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} aiExplanation={aiExplanation} aiExplanationStatus={aiExplanationStatus} aiExplanationError={aiExplanationError} onRequestExplanation={() => void explainPlan(userInputs, calcResults)} /></div>}
+        {currentScreen === 'dashboard' && <div className="pt-4 pb-16"><UnitMonitoringDashboard onOpenCalculator={handleStartNewPlan} onSignIn={() => openAuth('login', 'dashboard')} /></div>}
         {currentScreen === 'plans' && <PlanLibraryPage onSignIn={() => openAuth('login', 'plans')} onOpen={handleOpenSavedPlan} />}
         {currentScreen === 'feedback' && <FeedbackPage onSignIn={() => openAuth('login', 'feedback')} />}
         {currentScreen === 'moderation' && <FeedbackModerationPage />}
-        {hasVisitedAIChat && <div className={currentScreen === 'ai-chat' ? '' : 'hidden'}><AIBackupChatPage onSignIn={() => openAuth('login', 'ai-chat')} onPlanReady={handleAIPlanReady} onOpenDetailedPlan={() => go('results')} /></div>}
         {currentScreen === 'auth' && <AuthPage mode={authMode} savePlanIntent={savePlanAfterAuth} onModeChange={setAuthMode} onBack={finishAuth} onComplete={finishAuth} />}
         </Suspense>
       </main>

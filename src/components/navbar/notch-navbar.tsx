@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { Home, Sliders, LayoutDashboard, Sparkles, Menu, X, MessageSquareText, UserRound, LogOut, FolderOpen, ShieldCheck } from "lucide-react"
+import { Home, Sliders, LayoutDashboard, Menu, X, MessageSquareText, UserRound, LogOut, FolderOpen, ShieldCheck, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import LogoIcon from "@/assets/logo/logo-icon"
 import { motion, AnimatePresence } from "framer-motion"
@@ -29,12 +29,11 @@ interface NotchNavbarProps extends React.HTMLAttributes<HTMLElement> {
   currentScreen?: string
   onNavigateHome: () => void
   onNavigateCalculator: () => void
+  onNavigateAdvisor: () => void
   onNavigateDashboard: () => void
-  onStartSetup: () => void
   onNavigatePlans: () => void
   onNavigateFeedback: () => void
   onNavigateModeration: () => void
-  onNavigateAIChat: () => void
   onAuthAction: () => void
   onSignUp: () => void
   onSignOut: () => void
@@ -49,12 +48,11 @@ export function NotchNavbar({
   currentScreen = "home",
   onNavigateHome,
   onNavigateCalculator,
+  onNavigateAdvisor,
   onNavigateDashboard,
-  onStartSetup,
   onNavigatePlans,
   onNavigateFeedback,
   onNavigateModeration,
-  onNavigateAIChat,
   onAuthAction,
   onSignUp,
   onSignOut,
@@ -69,7 +67,8 @@ export function NotchNavbar({
   const items = {
     left: [
       { label: "Home", icon: Home, active: currentScreen === "home", onClick: onNavigateHome },
-      { label: "Calculator", icon: Sliders, active: currentScreen === "setup" || currentScreen === "analysis", onClick: onNavigateCalculator },
+      { label: "AI Advisor", icon: Sparkles, active: currentScreen === "advisor", onClick: onNavigateAdvisor },
+      { label: "Calculator", icon: Sliders, active: currentScreen === "setup", onClick: onNavigateCalculator },
     ],
     right: [
       { label: "Monitoring", icon: LayoutDashboard, active: currentScreen === "dashboard", onClick: onNavigateDashboard },
@@ -154,15 +153,8 @@ export function NotchNavbar({
                 ))}
               </nav>
 
-              {/* Mobile Right Action */}
-              <div className="lg:hidden flex items-center gap-2 mb-1 justify-self-end">
-                <button
-                  onClick={onStartSetup}
-                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-[#24242A] border border-[#E5A93C]/50 rounded-xl"
-                >
-                  Create Plan
-                </button>
-              </div>
+              {/* Keep the logo centered; Calculator is the single navigation entry to setup. */}
+              <div className="lg:hidden" aria-hidden="true" />
             </div>
           </div>
 
@@ -179,7 +171,7 @@ export function NotchNavbar({
           </div>
         </div>
 
-        {/* Right Side Bar - holds Create Plan + auth on desktop */}
+        {/* Right Side Bar - holds account actions on desktop */}
         <div className="flex-1 h-10 bg-[#111116]/75 backdrop-blur-xl z-20 relative min-w-0 -ml-px">
           <svg className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none">
             <line x1="0" y1="39.5" x2="100%" y2="39.5" stroke="#FFFFFF" strokeOpacity={0.18} strokeWidth={0.75} />
@@ -279,17 +271,6 @@ export function NotchNavbar({
                   </button>
                 </div>
               )}
-              <div className="h-px bg-white/15 my-2" />
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false)
-                  onStartSetup()
-                }}
-                className="flex items-center justify-center gap-2 p-3 rounded-xl border border-[#E5A93C]/50 bg-[#24242A] text-white font-bold uppercase text-xs tracking-wider"
-              >
-                <Sparkles className="w-4 h-4" />
-                Create My Backup Plan
-              </button>
             </nav>
           </motion.div>
         )}

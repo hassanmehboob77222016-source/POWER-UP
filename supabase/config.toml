@@ -6,4 +6,6 @@ project_id = "powerup"
 major_version = 15
 
 [functions.ai-backup-advisor]
+# Guests have no user JWT. The function validates the public project key,
+# verifies signed-in JWTs, and enforces quotas before calling the model.
 verify_jwt = false

@@ -40,7 +40,7 @@ export function Footer({ variant = 'full' }: FooterProps) {
                     Power<span className="text-[#E5A93C]">Up</span>
                   </span>
                   <span className="block text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    Backup Power Coach
+                    Backup Power Planner
                   </span>
                 </div>
               </div>

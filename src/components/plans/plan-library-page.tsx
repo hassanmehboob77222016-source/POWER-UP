@@ -3,17 +3,17 @@ import { BatteryCharging, Clock3, LoaderCircle, Pencil, Plus, Trash2 } from 'luc
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
 import type { SetupInputs, CalculationResults } from '@/lib/calculations'
-import type { AICoachPlan } from '@/lib/ai-service'
+import type { BackupAdvice } from '@/lib/backup-advice'
 
 interface SavedPlan {
   id: string
   plan_name: string
   backup_configuration: SetupInputs
   selected_appliances: SetupInputs['selectedAppliances']
-  calculation_results: { calculation: CalculationResults; advice: AICoachPlan }
+  calculation_results: { calculation: CalculationResults; advice: BackupAdvice }
   updated_at: string
 }
-interface Props { onOpen: (id: string, name: string, inputs: SetupInputs, results: CalculationResults, advice: AICoachPlan) => void; onSignIn: () => void }
+interface Props { onOpen: (id: string, name: string, inputs: SetupInputs) => void; onSignIn: () => void }
 const buttonClass = 'rounded-xl border border-border px-3 py-2 text-sm font-semibold transition hover:border-[#D99B26] hover:bg-[#FAF6EE]'
 
 export function PlanLibraryPage({ onOpen, onSignIn }: Props) {
@@ -48,7 +48,7 @@ export function PlanLibraryPage({ onOpen, onSignIn }: Props) {
   }
 
   const deletePlan = async (plan: SavedPlan) => {
-    if (!window.confirm(`Delete “${plan.plan_name}”? This cannot be undone.`)) return
+    if (!window.confirm(`Delete “${plan.plan_name}” and its linked monitoring readings? This cannot be undone.`)) return
     setWorkingId(plan.id); setError('')
     const { data, error: deleteError } = await supabase!.from('backup_plans').delete().eq('id', plan.id).select('id').maybeSingle()
     if (deleteError) setError(deleteError.message)
@@ -64,7 +64,7 @@ export function PlanLibraryPage({ onOpen, onSignIn }: Props) {
     {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     {user && busy && <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground"><LoaderCircle className="h-5 w-5 animate-spin" /> Loading plans…</div>}
     {user && !busy && plans.length === 0 && !error && <div className="rounded-2xl border border-dashed border-border bg-card p-10 text-center"><BatteryCharging className="mx-auto h-8 w-8 text-[#B88628]" /><h2 className="mt-3 text-xl font-bold">No saved plans yet</h2><p className="mt-2 text-sm text-muted-foreground">Generate a plan and choose “Save plan” to keep it here.</p></div>}
-    {user && !busy && plans.length > 0 && <div className="grid gap-4 md:grid-cols-2">{plans.map(plan => <article key={plan.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-bold">{plan.plan_name}</h2><p className="mt-1 text-xs text-muted-foreground">Updated {new Date(plan.updated_at).toLocaleDateString()}</p></div><span className="rounded-full bg-[#FAF6EE] px-2.5 py-1 text-xs font-bold capitalize text-[#8C641A]">{plan.backup_configuration.backupType}</span></div><div className="mt-4 flex flex-wrap gap-4 text-sm text-muted-foreground"><span className="inline-flex items-center gap-1.5"><BatteryCharging className="h-4 w-4" />{plan.calculation_results.calculation.isCalculable ? `${(plan.calculation_results.calculation.usableCapacityWh / 1000).toFixed(1)} kWh usable` : 'Capacity unknown'}</span><span className="inline-flex items-center gap-1.5"><Clock3 className="h-4 w-4" />{plan.backup_configuration.typicalOutageHours}h outage</span></div><div className="mt-5 flex flex-wrap gap-2"><button className={buttonClass} onClick={() => onOpen(plan.id, plan.plan_name, plan.backup_configuration, plan.calculation_results.calculation, plan.calculation_results.advice)}>Open plan</button><button disabled={workingId === plan.id} className={buttonClass} onClick={() => void renamePlan(plan)}><Pencil className="mr-1 inline h-3.5 w-3.5" />Rename</button><button disabled={workingId === plan.id} className={`${buttonClass} text-red-700`} onClick={() => void deletePlan(plan)}><Trash2 className="mr-1 inline h-3.5 w-3.5" />Delete</button></div></article>)}</div>}
+    {user && !busy && plans.length > 0 && <div className="grid gap-4 md:grid-cols-2">{plans.map(plan => <article key={plan.id} className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-bold">{plan.plan_name}</h2><p className="mt-1 text-xs text-muted-foreground">Updated {new Date(plan.updated_at).toLocaleDateString()}</p></div><span className="rounded-full bg-[#FAF6EE] px-2.5 py-1 text-xs font-bold capitalize text-[#8C641A]">{plan.backup_configuration.backupType}</span></div><div className="mt-4 flex flex-wrap gap-4 text-sm text-muted-foreground"><span className="inline-flex items-center gap-1.5"><BatteryCharging className="h-4 w-4" />{plan.calculation_results.calculation.isCalculable && plan.calculation_results.calculation.usableCapacityWh !== null ? `${(plan.calculation_results.calculation.usableCapacityWh / 1000).toFixed(1)} kWh usable` : 'Capacity unknown'}</span><span className="inline-flex items-center gap-1.5"><Clock3 className="h-4 w-4" />{plan.backup_configuration.typicalOutageHours}h outage</span></div><div className="mt-5 flex flex-wrap gap-2"><button className={buttonClass} onClick={() => onOpen(plan.id, plan.plan_name, plan.backup_configuration)}>Open plan</button><button disabled={workingId === plan.id} className={buttonClass} onClick={() => void renamePlan(plan)}><Pencil className="mr-1 inline h-3.5 w-3.5" />Rename</button><button disabled={workingId === plan.id} className={`${buttonClass} text-red-700`} onClick={() => void deletePlan(plan)}><Trash2 className="mr-1 inline h-3.5 w-3.5" />Delete</button></div></article>)}</div>}
   </section>
 }
 
