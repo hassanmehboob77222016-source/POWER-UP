@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { dirname, resolve } from 'node:path'
 import { after, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 
-const vite = await createServer({ configFile: 'vite.config.ts', server: { middlewareMode: true }, appType: 'custom' })
+const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const vite = await createServer({ configFile: resolve(frontendRoot, 'vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' })
 after(() => vite.close())
 
 const [{ PRESET_APPLIANCES }, { calculateBackupPlan }, { buildBackupUpgradeScenarios }, { generateBackupAdvice }] = await Promise.all([

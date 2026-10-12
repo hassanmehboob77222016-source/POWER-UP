@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
+import { dirname, resolve } from 'node:path'
 import { after, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 
-const vite = await createServer({ configFile: 'vite.config.ts', server: { middlewareMode: true }, appType: 'custom' })
+const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const advisorShared = resolve(frontendRoot, '../backend/supabase/functions/_shared')
+const vite = await createServer({ configFile: resolve(frontendRoot, 'vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' })
 after(() => vite.close())
-const { AdvisorFailure, createAdvisorHandler, validateAdvisorRequest } = await vite.ssrLoadModule('/supabase/functions/_shared/advisor-core.ts')
-const { createGroqProvider } = await vite.ssrLoadModule('/supabase/functions/_shared/groq-provider.ts')
+const { AdvisorFailure, createAdvisorHandler, validateAdvisorRequest } = await vite.ssrLoadModule(resolve(advisorShared, 'advisor-core.ts'))
+const { createGroqProvider } = await vite.ssrLoadModule(resolve(advisorShared, 'groq-provider.ts'))
 
 const intake = {
   version: 1, action: 'intake', locale: 'en',

@@ -1,12 +1,15 @@
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
+
+const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 async function localSecret(name) {
   if (process.env[name]) return process.env[name]
   let content
   try {
-    content = await readFile(join(process.cwd(), 'supabase', 'functions', '.env'), 'utf8')
+    content = await readFile(join(frontendRoot, '../backend/supabase/functions/.env'), 'utf8')
   } catch (error) {
     if (error.code === 'ENOENT') return undefined
     throw error
@@ -19,13 +22,14 @@ async function localSecret(name) {
 
 const key = await localSecret('GROQ_API_KEY')
 if (!key) {
-  console.error('GROQ_API_KEY is missing. Set it in the ignored supabase/functions/.env file or this process environment.')
+  console.error('GROQ_API_KEY is missing. Set it in the ignored backend/supabase/functions/.env file or this process environment.')
   process.exitCode = 1
 } else {
-  const vite = await createServer({ configFile: 'vite.config.ts', server: { middlewareMode: true }, appType: 'custom' })
+  const vite = await createServer({ configFile: resolve(frontendRoot, 'vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' })
   try {
-    const { createAdvisorHandler } = await vite.ssrLoadModule('/supabase/functions/_shared/advisor-core.ts')
-    const { createGroqProvider } = await vite.ssrLoadModule('/supabase/functions/_shared/groq-provider.ts')
+    const advisorShared = resolve(frontendRoot, '../backend/supabase/functions/_shared')
+    const { createAdvisorHandler } = await vite.ssrLoadModule(resolve(advisorShared, 'advisor-core.ts'))
+    const { createGroqProvider } = await vite.ssrLoadModule(resolve(advisorShared, 'groq-provider.ts'))
     const handler = createAdvisorHandler({
       authenticate: async () => ({ kind: 'user', id: 'local-verification' }),
       consumeQuota: async () => true,

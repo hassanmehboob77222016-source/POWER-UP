@@ -86,7 +86,7 @@ html::-webkit-scrollbar {
     repeating-linear-gradient(90deg, currentColor 0 10px, rgba(0, 0, 0, 0) 0 15px) 0/0% no-repeat content-box content-box;
   position: relative;
   box-sizing: border-box;
-  animation: powerup-loader-sweep 2s infinite steps(6);
+  animation: powerup-loader-sweep 5s infinite steps(6);
   border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.18), 0 10px 24px rgba(229, 169, 60, 0.1);
 }
@@ -119,4 +119,61 @@ html::-webkit-scrollbar {
   .powerup-loader {
     animation: none;
   }
+}
+
+/* Screen loader: shown until the React app has mounted */
+#powerup-preloader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--background);
+  z-index: 9999;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+
+#powerup-preloader.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#powerup-preloader.hidden {
+  display: none;
+}
+
+.powerup-loader {
+  width: 96px;
+  height: 44px;
+  color: #e5a93c;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  padding: 3px;
+  background:
+    repeating-linear-gradient(90deg, currentColor 0 10px, rgba(0, 0, 0, 0) 0 15px) 0/0% no-repeat content-box content-box;
+  position: relative;
+  box-sizing: border-box;
+  animation: powerup-loader-sweep 2s infinite steps(6);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.18), 0 10px 24px rgba(229, 169, 60, 0.1);
+}
+
+.powerup-loader::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 100%;
+  width: 12px;
+  background:
+    linear-gradient(
+      rgba(0,0,0,0) calc(50% - 7px),
+      currentColor 0 calc(50% - 5px),
+      rgba(0,0,0,0) 0 calc(50% + 5px),
+      currentColor 0 calc(50% + 7px),
+      rgba(0,0,0,0) 0
+    ) left / 100% 100%,
+    linear-gradient(currentColor calc(50% - 5px), rgba(0,0,0,0) 0 calc(50% + 5px), currentColor 0) left / 2px 100%,
+    linear-gradient(rgba(0,0,0,0) calc(50% - 5px), currentColor 0 calc(50% + 5px), rgba(0,0,0,0) 0) right / 2px 100%;
+  background-repeat: no-repeat;
 }

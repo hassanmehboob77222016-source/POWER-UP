@@ -1,7 +1,7 @@
-import { AI_ADVISOR_LIMITS } from '../../../src/lib/ai-advisor-contract.ts'
-import type { AdvisorRequestV1 } from '../../../src/lib/ai-advisor-contract.ts'
-import type { CalculationResults } from '../../../src/lib/calculations.ts'
-import { PRESET_APPLIANCES } from '../../../src/lib/appliances-data.ts'
+import { AI_ADVISOR_LIMITS } from '../../../../frontend/src/lib/ai-advisor-contract.ts'
+import type { AdvisorRequestV1 } from '../../../../frontend/src/lib/ai-advisor-contract.ts'
+import type { CalculationResults } from '../../../../frontend/src/lib/calculations.ts'
+import { PRESET_APPLIANCES } from '../../../../frontend/src/lib/appliances-data.ts'
 import { AdvisorFailure } from './advisor-core.ts'
 
 const string = { type: 'string' }

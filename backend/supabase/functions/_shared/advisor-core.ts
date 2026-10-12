@@ -1,11 +1,11 @@
-import { AI_ADVISOR_CONTRACT_VERSION, AI_ADVISOR_LIMITS } from '../../../src/lib/ai-advisor-contract.ts'
+import { AI_ADVISOR_CONTRACT_VERSION, AI_ADVISOR_LIMITS } from '../../../../frontend/src/lib/ai-advisor-contract.ts'
 import type {
   AdvisorConfirmedDraft, AdvisorErrorCode, AdvisorInputProposal,
   AdvisorRequestV1, AdvisorResponseV1, AdvisorSetupInputs,
-} from '../../../src/lib/ai-advisor-contract.ts'
-import { calculateBackupPlan, CALCULATION_ENGINE_VERSION } from '../../../src/lib/calculations.ts'
-import type { CalculationResults } from '../../../src/lib/calculations.ts'
-import { PRESET_APPLIANCES } from '../../../src/lib/appliances-data.ts'
+} from '../../../../frontend/src/lib/ai-advisor-contract.ts'
+import { calculateBackupPlan, CALCULATION_ENGINE_VERSION } from '../../../../frontend/src/lib/calculations.ts'
+import type { CalculationResults } from '../../../../frontend/src/lib/calculations.ts'
+import { PRESET_APPLIANCES } from '../../../../frontend/src/lib/appliances-data.ts'
 
 type RecordValue = Record<string, unknown>
 type Identity = { kind: 'guest'; networkAddress: string } | { kind: 'user'; id: string }
