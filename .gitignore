@@ -3,5 +3,5 @@ dist/
 .env
 .env.*
 !.env.example
-supabase/functions/.env
+backend/supabase/functions/.env
 *.tsbuildinfo
