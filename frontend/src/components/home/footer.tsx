@@ -5,12 +5,26 @@ export type FooterVariant = 'full' | 'minimal' | 'hidden'
 
 interface FooterProps {
   variant?: FooterVariant
+  onNavigateHome?: () => void
+  onNavigateCalculator?: () => void
+  onNavigateDashboard?: () => void
 }
 
-export function Footer({ variant = 'full' }: FooterProps) {
+export function Footer({
+  variant = 'full',
+  onNavigateHome,
+  onNavigateCalculator,
+  onNavigateDashboard,
+}: FooterProps) {
   if (variant === 'hidden') return null
 
   const isFull = variant === 'full'
+
+  const links = [
+    { label: 'Home', href: '#home', onClick: onNavigateHome },
+    { label: 'Calculator', href: '#calculator', onClick: onNavigateCalculator },
+    { label: 'Monitoring', href: '#monitoring', onClick: onNavigateDashboard },
+  ]
 
   return (
     <footer className="relative overflow-hidden border-t border-border/80 bg-background py-10 md:py-14">
@@ -40,26 +54,31 @@ export function Footer({ variant = 'full' }: FooterProps) {
                     Power<span className="text-[#E5A93C]">Up</span>
                   </span>
                   <span className="block text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-                    Backup Power Planner
+                    Load-shedding backup planner
                   </span>
                 </div>
               </div>
 
               <nav className="flex flex-wrap items-center justify-center gap-5 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground md:justify-end" aria-label="Footer navigation">
-                <a href="#home" className="transition hover:text-foreground">Home</a>
-                <a href="#calculator" className="transition hover:text-foreground">Calculator</a>
-                <a href="#monitoring" className="transition hover:text-foreground">Monitoring</a>
-                <a href="#plans" className="transition hover:text-foreground">Plans</a>
+                {links.map(({ label, href, onClick }) =>
+                  onClick ? (
+                    <button key={label} onClick={onClick} className="uppercase tracking-[0.18em] transition hover:text-foreground">
+                      {label}
+                    </button>
+                  ) : (
+                    <a key={label} href={href} className="transition hover:text-foreground">
+                      {label}
+                    </a>
+                  )
+                )}
               </nav>
             </div>
 
-            <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border/80 pt-4 text-[11px] text-muted-foreground md:flex-row">
-              <p>© {new Date().getFullYear()} PowerUp. All rights reserved.</p>
-              <div className="flex items-center gap-4">
-                <span className="transition hover:text-foreground">Privacy</span>
-                <span className="transition hover:text-foreground">Terms</span>
-                <span className="transition hover:text-foreground">Support</span>
-              </div>
+            <div className="mt-8 flex flex-col items-center justify-between gap-3 border-t border-border/80 pt-4 text-[11px] text-muted-foreground md:flex-row">
+              <p>© {new Date().getFullYear()} PowerUp</p>
+              <p className="max-w-xl text-center md:text-right">
+                Runtimes are estimates from the values you enter. Check wiring and battery limits with a qualified electrician.
+              </p>
             </div>
           </>
         ) : (
@@ -73,11 +92,7 @@ export function Footer({ variant = 'full' }: FooterProps) {
               </span>
             </div>
 
-            <div className="flex items-center gap-4">
-              <span className="transition hover:text-foreground">Privacy</span>
-              <span className="transition hover:text-foreground">Terms</span>
-              <span className="transition hover:text-foreground">Support</span>
-            </div>
+            <p>Runtimes are estimates from the values you enter.</p>
           </div>
         )}
       </div>

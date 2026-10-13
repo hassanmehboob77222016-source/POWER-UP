@@ -96,7 +96,7 @@ export function AuthPage({ mode, savePlanIntent = false, onModeChange, onBack, o
           <AnimatedButton
             type="submit"
             disabled={busy || !configured}
-            className="w-full rounded-xl bg-background px-5 py-3 text-sm font-semibold text-foreground shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl border-primary bg-primary px-5 py-3 text-sm font-semibold text-foreground shadow-sm transition-colors hover:border-primary-hover hover:bg-primary-hover active:border-primary-dark active:bg-primary-dark focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="inline-flex items-center justify-center gap-2">
               {busy && <LoaderCircle className="h-4 w-4 animate-spin" />}
