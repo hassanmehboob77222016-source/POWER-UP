@@ -7,6 +7,36 @@ import './index.css'
 
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
+const preloader = document.getElementById('powerup-preloader')
+if (preloader) {
+  const loader = preloader.querySelector<HTMLElement>('.powerup-loader')
+  let appReady = false
+  let loaderComplete = !loader || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  const hideWhenReady = () => {
+    if (appReady && loaderComplete) preloader.classList.add('fade-out')
+  }
+
+  if (loader && !loaderComplete) {
+    loader.addEventListener('animationend', event => {
+      if (event.animationName !== 'powerup-loader-sweep') return
+      loaderComplete = true
+      hideWhenReady()
+    }, { once: true })
+  }
+
+  window.addEventListener('powerup:app-ready', () => {
+    appReady = true
+    hideWhenReady()
+  }, { once: true })
+
+  preloader.addEventListener('transitionend', event => {
+    if (event.target === preloader && event.propertyName === 'opacity') {
+      preloader.classList.add('hidden')
+    }
+  }, { once: true })
+}
+
 root.render(
   <React.StrictMode>
     <ThemeProvider>
@@ -14,12 +44,3 @@ root.render(
     </ThemeProvider>
   </React.StrictMode>,
 )
-
-// Hide the preloader once the app has mounted
-const preloader = document.getElementById('powerup-preloader')
-if (preloader) {
-  preloader.classList.add('fade-out')
-  preloader.addEventListener('transitionend', () => {
-    preloader.classList.add('hidden')
-  })
-}

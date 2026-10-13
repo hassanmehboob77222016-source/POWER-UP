@@ -56,7 +56,7 @@ html::-webkit-scrollbar {
 
 @keyframes powerup-loader-sweep {
   100% {
-    background-size: 120%;
+    background-size: 100% 100%;
   }
 }
 
@@ -75,48 +75,8 @@ html::-webkit-scrollbar {
   animation-name: hero-light-up;
 }
 
-.powerup-loader {
-  width: 96px;
-  height: 44px;
-  color: #e5a93c;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  padding: 3px;
-  background:
-    repeating-linear-gradient(90deg, currentColor 0 10px, rgba(0, 0, 0, 0) 0 15px) 0/0% no-repeat content-box content-box;
-  position: relative;
-  box-sizing: border-box;
-  animation: powerup-loader-sweep 5s infinite steps(6);
-  border-radius: 4px;
-  box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.18), 0 10px 24px rgba(229, 169, 60, 0.1);
-}
-
-.powerup-loader::before {
-  content: "";
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: 100%;
-  width: 12px;
-  background:
-    linear-gradient(
-      rgba(0,0,0,0) calc(50% - 7px),
-      currentColor 0 calc(50% - 5px),
-      rgba(0,0,0,0) 0 calc(50% + 5px),
-      currentColor 0 calc(50% + 7px),
-      rgba(0,0,0,0) 0
-    ) left / 100% 100%,
-    linear-gradient(currentColor calc(50% - 5px), rgba(0,0,0,0) 0 calc(50% + 5px), currentColor 0) left / 2px 100%,
-    linear-gradient(rgba(0,0,0,0) calc(50% - 5px), currentColor 0 calc(50% + 5px), rgba(0,0,0,0) 0) right / 2px 100%;
-  background-repeat: no-repeat;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .hero-light-track {
-    animation: none;
-  }
-
-  .powerup-loader {
     animation: none;
   }
 }
@@ -151,9 +111,10 @@ html::-webkit-scrollbar {
   padding: 3px;
   background:
     repeating-linear-gradient(90deg, currentColor 0 10px, rgba(0, 0, 0, 0) 0 15px) 0/0% no-repeat content-box content-box;
+  background-size: 0% 100%;
   position: relative;
   box-sizing: border-box;
-  animation: powerup-loader-sweep 2s infinite steps(6);
+  animation: powerup-loader-sweep 2s steps(6, end) forwards;
   border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(229, 169, 60, 0.18), 0 10px 24px rgba(229, 169, 60, 0.1);
 }
@@ -176,4 +137,10 @@ html::-webkit-scrollbar {
     linear-gradient(currentColor calc(50% - 5px), rgba(0,0,0,0) 0 calc(50% + 5px), currentColor 0) left / 2px 100%,
     linear-gradient(rgba(0,0,0,0) calc(50% - 5px), currentColor 0 calc(50% + 5px), rgba(0,0,0,0) 0) right / 2px 100%;
   background-repeat: no-repeat;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .powerup-loader {
+    animation: none;
+  }
 }

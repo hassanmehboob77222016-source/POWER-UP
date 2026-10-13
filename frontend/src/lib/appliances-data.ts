@@ -18,29 +18,29 @@ export const PRESET_APPLIANCES: Appliance[] = [
   // Connectivity & Work
   {
     id: 'wifi-router',
-    name: 'Wi-Fi Fiber / Router',
+    name: 'Wi-Fi router',
     category: 'connectivity',
     wattage: 12,
     defaultSelected: true,
     isCritical: true,
     canCycle: false,
     dutyCycleRatio: 1.0,
-    tip: 'Essential for communications; ultra-low draw.'
+    tip: 'Keeps your home Wi-Fi available during a power cut.'
   },
   {
     id: 'work-laptop',
-    name: 'Work Laptop (Type-C / 65W)',
+    name: 'Laptop',
     category: 'connectivity',
     wattage: 55,
     defaultSelected: true,
     isCritical: true,
     canCycle: true,
     dutyCycleRatio: 0.8,
-    tip: 'Charge laptop during grid time; run on internal battery first.'
+    tip: 'You can save backup power by using the laptop battery first.'
   },
   {
     id: 'phone-chargers',
-    name: 'Mobile Phone Charging (x2)',
+    name: 'Phone charger',
     category: 'connectivity',
     wattage: 20,
     unitCount: 2,
@@ -48,24 +48,24 @@ export const PRESET_APPLIANCES: Appliance[] = [
     isCritical: true,
     canCycle: true,
     dutyCycleRatio: 0.5,
-    tip: 'Fast charge phones in short bursts rather than keeping plugged in.'
+    tip: 'Charge phones when needed instead of leaving them plugged in.'
   },
   {
     id: 'desktop-monitor',
-    name: 'Desktop PC & Monitor',
+    name: 'Desktop computer and monitor',
     category: 'connectivity',
     wattage: 180,
     defaultSelected: false,
     isCritical: false,
     canCycle: false,
     dutyCycleRatio: 1.0,
-    tip: 'High continuous draw. Consider switching to a laptop during long outages.'
+    tip: 'A desktop computer usually uses more power than a laptop.'
   },
 
   // Lighting
   {
     id: 'led-lights',
-    name: 'LED Light Bulbs (x4)',
+    name: 'LED light bulb',
     category: 'lighting',
     wattage: 36, // 4 x 9W
     unitCount: 4,
@@ -73,11 +73,11 @@ export const PRESET_APPLIANCES: Appliance[] = [
     isCritical: true,
     canCycle: false,
     dutyCycleRatio: 0.9,
-    tip: 'Only illuminate rooms actively in use.'
+    tip: 'Use lights only in the rooms you need.'
   },
   {
     id: 'desk-lamp',
-    name: 'Study Desk Lamp',
+    name: 'Desk lamp',
     category: 'lighting',
     wattage: 10,
     defaultSelected: false,
@@ -89,29 +89,29 @@ export const PRESET_APPLIANCES: Appliance[] = [
   // Cooling & Ventilation
   {
     id: 'ceiling-fan',
-    name: 'Ceiling Fan (Speed 3)',
+    name: 'Ceiling fan',
     category: 'cooling',
     wattage: 70,
     defaultSelected: true,
     isCritical: false,
     canCycle: true,
     dutyCycleRatio: 0.8,
-    tip: 'Running at speed 2 uses ~30% less power than maximum speed.'
+    tip: 'A lower fan speed may use less power.'
   },
   {
     id: 'dc-inverter-fan',
-    name: 'BLDC / DC Inverter Fan',
+    name: 'Energy-saving fan',
     category: 'cooling',
     wattage: 30,
     defaultSelected: false,
     isCritical: false,
     canCycle: true,
     dutyCycleRatio: 0.8,
-    tip: 'Consumes less than half the power of standard AC fans.'
+    tip: 'This fan may use less power than a standard ceiling fan.'
   },
   {
     id: 'standing-fan',
-    name: 'Portable Standing Fan',
+    name: 'Standing fan',
     category: 'cooling',
     wattage: 50,
     defaultSelected: false,
@@ -123,7 +123,7 @@ export const PRESET_APPLIANCES: Appliance[] = [
   // Food Preservation
   {
     id: 'inverter-fridge',
-    name: 'Inverter Refrigerator',
+    name: 'Refrigerator',
     category: 'cooling',
     wattage: 120,
     surgeWattage: 350,
@@ -131,11 +131,11 @@ export const PRESET_APPLIANCES: Appliance[] = [
     isCritical: true,
     canCycle: true,
     dutyCycleRatio: 0.45, // Thermal mass allows cycling
-    tip: 'Keep door shut. Run 30-40 min every 2 hrs to preserve chilled items while saving 50%+ battery.'
+    tip: 'Keep the door closed to help food stay cold for longer.'
   },
   {
     id: 'deep-freezer',
-    name: 'Chest Deep Freezer',
+    name: 'Chest freezer',
     category: 'cooling',
     wattage: 150,
     surgeWattage: 600,
@@ -143,24 +143,24 @@ export const PRESET_APPLIANCES: Appliance[] = [
     isCritical: false,
     canCycle: true,
     dutyCycleRatio: 0.35,
-    tip: 'Well-insulated freezers maintain sub-zero temps for 12+ hrs unopened without power.'
+    tip: 'Keeping the lid closed helps frozen food stay cold during an outage.'
   },
 
   // Critical & Medical
   {
     id: 'medical-cpap',
-    name: 'Medical CPAP / Oxygen Concentrator',
+    name: 'CPAP or oxygen machine',
     category: 'critical',
     wattage: 65,
     defaultSelected: false,
     isCritical: true,
     canCycle: false,
     dutyCycleRatio: 1.0,
-    tip: 'Life-critical load. Keep backup battery dedicated to this circuit.'
+    tip: 'Include this if someone relies on it during a power cut.'
   },
   {
     id: 'aquarium-pump',
-    name: 'Aquarium Aerator Pump',
+    name: 'Fish tank air pump',
     category: 'critical',
     wattage: 15,
     defaultSelected: false,
@@ -172,18 +172,18 @@ export const PRESET_APPLIANCES: Appliance[] = [
   // Entertainment & Kitchen
   {
     id: 'smart-tv',
-    name: 'Smart TV (43"–55")',
+    name: 'Television',
     category: 'kitchen',
     wattage: 85,
     defaultSelected: false,
     isCritical: false,
     canCycle: false,
     dutyCycleRatio: 1.0,
-    tip: 'Significant drain on smaller backup inverters.'
+    tip: 'Add this if you plan to watch TV during an outage.'
   },
   {
     id: 'microwave',
-    name: 'Microwave Oven (Quick Reheat)',
+    name: 'Microwave (short use)',
     category: 'kitchen',
     wattage: 950,
     surgeWattage: 1400,
@@ -191,6 +191,6 @@ export const PRESET_APPLIANCES: Appliance[] = [
     isCritical: false,
     canCycle: true,
     dutyCycleRatio: 0.05, // 3 minutes total
-    tip: 'Extremely high load. Use only on high-capacity (3kVA+) inverters.'
+    tip: 'A microwave uses a lot of power. Check that your system can run one.'
   }
 ]

@@ -59,7 +59,7 @@ function readAuthDraft(): AuthDraft | null {
 }
 
 export function App() {
-  const { user, displayName, isFeedbackAdmin, signOut } = useAuth()
+  const { user, displayName, isFeedbackAdmin, signOut, loading } = useAuth()
   const [authDraft] = useState(readAuthDraft)
   const [currentScreen, setCurrentScreen] = useState<Screen>(() => new URLSearchParams(window.location.search).get('screen') === 'reset' ? 'auth' : authDraft?.screen ?? 'home')
   const [authMode, setAuthMode] = useState<AuthMode>(() => new URLSearchParams(window.location.search).get('screen') === 'reset' ? 'reset' : 'login')
@@ -105,6 +105,10 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (!loading) window.dispatchEvent(new Event('powerup:app-ready'))
+  }, [loading])
+
+  useEffect(() => {
     const startPlan = () => handleStartNewPlan()
     const signIn = () => openAuth('login', 'results')
     window.addEventListener('powerup:create-plan', startPlan)
@@ -113,13 +117,54 @@ export function App() {
   })
 
   const go = (screen: Screen) => { setCurrentScreen(screen); window.scrollTo({ top: 0, behavior: 'smooth' }) }
-  const handleNavigateHome = () => go('home')
-  const handleNavigateCalculator = () => go('setup')
-  const handleNavigateAdvisor = () => handleStartAdvisor()
-  const handleStartNewPlan = () => { clearExplanation(); setAdvisorJourney(false); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory for this editing session. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup') }
-  const handleStartAdvisor = () => { clearExplanation(); setAdvisorJourney(true); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); go('advisor') }
+  const handleNavigateHome = () => {
+    if (!user) {
+      try { sessionStorage.removeItem(AUTH_DRAFT_KEY) } catch { /* Ignore unavailable storage. */ }
+      setSavePlanAfterAuth(false)
+    }
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('screen') === 'reset') {
+      url.searchParams.delete('screen')
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+    go('home')
+  }
+  const handleNavigateCalculator = () => {
+    if (!user) {
+      openAuth('login', 'setup')
+      return
+    }
+    go('setup')
+  }
+  const handleNavigateAdvisor = () => {
+    if (!user) {
+      openAuth('login', 'advisor')
+      return
+    }
+    handleStartAdvisor()
+  }
+  const handleStartNewPlan = () => {
+    if (!user) {
+      openAuth('login', 'setup')
+      return
+    }
+    clearExplanation(); setAdvisorJourney(false); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory for this editing session. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup')
+  }
+  const handleStartAdvisor = () => {
+    if (!user) {
+      openAuth('login', 'advisor')
+      return
+    }
+    clearExplanation(); setAdvisorJourney(true); setAdvisorLocale('en'); pendingPlanId.current = crypto.randomUUID(); try { sessionStorage.setItem(PENDING_PLAN_ID_KEY, pendingPlanId.current) } catch { /* Stable ID remains in memory. */ } setSavePlanAfterAuth(false); setSavedPlanId(null); setSavedPlanName('My backup plan'); setUserInputs(null); setCalcResults(null); setBackupAdvice(null); go('advisor')
+  }
   const handleAdvisorContinue = (inputs: SetupInputs, locale: AdvisorLocale) => { setAdvisorJourney(true); setAdvisorLocale(locale); setUserInputs(inputs); setCalcResults(null); setBackupAdvice(null); setWizardStartStep(1); setWizardKey(key => key + 1); go('setup') }
-  const handleNavigateDashboard = () => go('dashboard')
+  const handleNavigateDashboard = () => {
+    if (!user) {
+      openAuth('login', 'dashboard')
+      return
+    }
+    go('dashboard')
+  }
   const openAuth = (mode: AuthMode = 'login', destination: Screen = currentScreen, offerSaveAfterAuth = false) => {
     setAuthMode(mode); setReturnScreen(destination)
     const shouldOfferSave = offerSaveAfterAuth || savePlanAfterAuth
@@ -128,6 +173,13 @@ export function App() {
     go('auth')
   }
   const finishAuth = () => { try { sessionStorage.removeItem(AUTH_DRAFT_KEY) } catch { /* Ignore unavailable storage. */ } if (!user) setSavePlanAfterAuth(false); go(returnScreen) }
+  const cancelAuth = () => {
+    if (!user) {
+      handleNavigateHome()
+      return
+    }
+    go(returnScreen)
+  }
 
   const handleWizardSubmit = (inputs: SetupInputs) => {
     const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
@@ -198,6 +250,28 @@ export function App() {
 
   const footerVariant = currentScreen === 'home' ? 'full' : 'minimal'
 
+  useEffect(() => {
+    if (loading) return
+    const protectedScreens: Screen[] = ['setup', 'results', 'dashboard', 'plans', 'feedback', 'moderation', 'advisor']
+    const publicScreens: Screen[] = ['home', 'auth']
+    const search = new URLSearchParams(window.location.search)
+    const screenParam = search.get('screen')
+    const isResetFlow = screenParam === 'reset'
+    if (!user && protectedScreens.includes(currentScreen) && !isResetFlow) {
+      openAuth('login', currentScreen)
+    }
+    if (user && currentScreen === 'auth' && !isResetFlow && !authDraft?.screen) {
+      go('home')
+    }
+    if (screenParam === 'reset' && !user) {
+      setCurrentScreen('auth')
+      setAuthMode('reset')
+    }
+    if (user && publicScreens.includes(currentScreen) && currentScreen === 'auth' && authMode !== 'reset') {
+      go('home')
+    }
+  }, [currentScreen, user, loading, authDraft, authMode])
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
       <NotchNavbar
@@ -219,22 +293,27 @@ export function App() {
 
       <main className="flex-1 pt-16">
         <Suspense fallback={<div role="status" className="mx-auto flex max-w-5xl items-center justify-center gap-2 px-4 py-16 text-sm text-muted-foreground">Loading PowerUp…</div>}>
-        {currentScreen === 'home' && <><HeroSection onStartAdvisor={handleStartAdvisor} onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} /><BenefitsSection /></>}
-        {currentScreen === 'advisor' && <AiAdvisorPage onContinue={handleAdvisorContinue} onManual={handleStartNewPlan} />}
+          {currentScreen === 'home' && <><HeroSection onStartAdvisor={handleStartAdvisor} onStartSetup={handleStartNewPlan} onOpenDashboard={handleNavigateDashboard} /><BenefitsSection /></>}
+          {currentScreen === 'advisor' && <AiAdvisorPage onContinue={handleAdvisorContinue} onManual={handleStartNewPlan} />}
 
-        {/* Keep the wizard mounted while auth is shown so guest inputs survive sign-in. */}
-        <div className={currentScreen === 'setup' ? 'pt-6 pb-16' : 'hidden'}>
-          <BackupWizard key={wizardKey} initialInputs={userInputs} initialStep={wizardStartStep} onSubmit={handleWizardSubmit} onCancel={handleNavigateHome} />
-        </div>
-        {currentScreen === 'results' && calcResults && userInputs && backupAdvice && upgradeComparison && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} advice={backupAdvice} upgradeScenarios={upgradeComparison.scenarios} upgradeUnavailableReason={upgradeComparison.unavailableReason} onEdit={handleEditAnswers} onEditBattery={handleEditBatteryDetails} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} aiExplanation={aiExplanation} aiExplanationStatus={aiExplanationStatus} aiExplanationError={aiExplanationError} onRequestExplanation={() => void explainPlan(userInputs, calcResults)} /></div>}
-        {currentScreen === 'dashboard' && <div className="pt-4 pb-16"><UnitMonitoringDashboard onOpenCalculator={handleStartNewPlan} onSignIn={() => openAuth('login', 'dashboard')} /></div>}
-        {currentScreen === 'plans' && <PlanLibraryPage onSignIn={() => openAuth('login', 'plans')} onOpen={handleOpenSavedPlan} />}
-        {currentScreen === 'feedback' && <FeedbackPage onSignIn={() => openAuth('login', 'feedback')} />}
-        {currentScreen === 'moderation' && <FeedbackModerationPage />}
-        {currentScreen === 'auth' && <AuthPage mode={authMode} savePlanIntent={savePlanAfterAuth} onModeChange={setAuthMode} onBack={finishAuth} onComplete={finishAuth} />}
+          {/* Keep the wizard mounted while auth is shown so guest inputs survive sign-in. */}
+          <div className={currentScreen === 'setup' ? 'pt-6 pb-16' : 'hidden'}>
+            <BackupWizard key={wizardKey} initialInputs={userInputs} initialStep={wizardStartStep} onSubmit={handleWizardSubmit} onCancel={handleNavigateHome} />
+          </div>
+          {currentScreen === 'results' && calcResults && userInputs && backupAdvice && upgradeComparison && <div className="pt-6 pb-16"><ResultsView inputs={userInputs} results={calcResults} advice={backupAdvice} upgradeScenarios={upgradeComparison.scenarios} upgradeUnavailableReason={upgradeComparison.unavailableReason} onEdit={handleEditAnswers} onEditBattery={handleEditBatteryDetails} onSave={handleSavePlan} onSignInToSave={() => openAuth('login', 'results', true)} offerSaveAfterAuth={savePlanAfterAuth && Boolean(user)} canSave={Boolean(user)} isSaved={Boolean(savedPlanId)} savedName={savedPlanName} aiExplanation={aiExplanation} aiExplanationStatus={aiExplanationStatus} aiExplanationError={aiExplanationError} onRequestExplanation={() => void explainPlan(userInputs, calcResults)} /></div>}
+          {currentScreen === 'dashboard' && <div className="pt-4 pb-16"><UnitMonitoringDashboard onOpenCalculator={handleStartNewPlan} onSignIn={() => openAuth('login', 'dashboard')} /></div>}
+          {currentScreen === 'plans' && <PlanLibraryPage onSignIn={() => openAuth('login', 'plans')} onOpen={handleOpenSavedPlan} />}
+          {currentScreen === 'feedback' && <FeedbackPage onSignIn={() => openAuth('login', 'feedback')} />}
+          {currentScreen === 'moderation' && <FeedbackModerationPage />}
+          {currentScreen === 'auth' && <AuthPage mode={authMode} savePlanIntent={savePlanAfterAuth} onModeChange={setAuthMode} onBack={cancelAuth} onComplete={finishAuth} />}
         </Suspense>
       </main>
-      <Footer variant={footerVariant} />
+      <Footer
+        variant={footerVariant}
+        onNavigateHome={handleNavigateHome}
+        onNavigateCalculator={handleNavigateCalculator}
+        onNavigateDashboard={handleNavigateDashboard}
+      />
     </div>
   )
 }
