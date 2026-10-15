@@ -10,6 +10,7 @@ import type { BackupAdvice } from '@/lib/backup-advice'
 import type { BackupUpgradeScenario } from '@/lib/backup-upgrade-advisor'
 import type { AdvisorResponseV1 } from '@/lib/ai-advisor-contract'
 import { AiExplanationPanel } from './ai-explanation-panel'
+import { formatHoursMinutes } from '@/lib/duration'
 
 interface ResultsViewProps {
   inputs: SetupInputs
@@ -67,7 +68,7 @@ export function ResultsView({ inputs, results, advice, upgradeScenarios, upgrade
 - **Estimated Energy Use:** ${results.estimatedEnergyWh} Wh
 - **Planned Energy Requirement:** ${results.plannedEnergyWh} Wh
 - **Usable Battery Capacity:** ${results.usableCapacityWh ?? 'Not available'} Wh
-- **Estimated Runtime:** ${results.smartRuntimeHours === null ? 'Not available' : `${results.smartRuntimeHours} hours`}
+- **Estimated Runtime:** ${formatHoursMinutes(results.smartRuntimeHours)}
 - **Runtime status:** ${results.isSufficient === null ? 'Insufficient specifications for estimate' : results.isSufficient ? 'Estimate covers target' : 'Estimate is below target'}
 
 ## 💡 PowerUp Recommendations
@@ -202,18 +203,17 @@ ${advice.timelineSchedule.map(t => `- **${t.timeSlot}**: ${t.action} [${t.applia
                 <span className="text-xs font-bold uppercase font-mono tracking-wider">Estimated Runtime</span>
                 <ArrowUpRight className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" />
               </div>
-              <div className="text-2xl font-extrabold text-foreground font-mono mb-1 flex items-baseline gap-1">
-                <span>{results.smartRuntimeHours ?? "--"}</span>
-                <span className="text-sm font-sans font-medium text-muted-foreground">Hours</span>
+              <div className="text-2xl font-extrabold text-foreground font-mono mb-1">
+                {results.smartRuntimeHours === null ? '--' : formatHoursMinutes(results.smartRuntimeHours)}
               </div>
               <div className="text-[11px] text-muted-foreground font-mono mb-3">
-                Continuous-load estimate: {results.continuousRuntimeHours === null ? "--" : `${results.continuousRuntimeHours}h`}
+                Continuous-load estimate: {results.continuousRuntimeHours === null ? '--' : formatHoursMinutes(results.continuousRuntimeHours)}
               </div>
 
               <div className="flex items-center gap-1.5 text-[11px] font-semibold">
                   <span className={`inline-block w-2 h-2 rounded-full ${results.isSufficient === null ? 'bg-amber-500' : results.isSufficient ? 'bg-emerald-500' : 'bg-red-500'}`} />
                   <span className={results.isSufficient === null ? 'text-amber-500 font-mono' : results.isSufficient ? 'text-emerald-500 font-mono' : 'text-red-500 font-mono'}>
-                  {results.isSufficient === null ? 'Runtime unavailable' : results.isSufficient ? `Estimate covers ${inputs.typicalOutageHours}h` : `Estimate short by ${Math.abs(results.runtimeSurplusDeficitHours ?? 0)}h`}
+                  {results.isSufficient === null ? 'Runtime unavailable' : results.isSufficient ? `Estimate covers ${formatHoursMinutes(inputs.typicalOutageHours)}` : `Estimate short by ${formatHoursMinutes(Math.abs(results.runtimeSurplusDeficitHours ?? 0))}`}
                 </span>
               </div>
             </div>
@@ -410,14 +410,14 @@ ${advice.timelineSchedule.map(t => `- **${t.timeSlot}**: ${t.action} [${t.applia
                 <div className="p-3 rounded-xl bg-surface border border-border space-y-1">
                   <span className="text-muted-foreground block text-[11px]">2. Continuous Runtime:</span>
                   <p className="text-foreground">
-                    Runtime estimate = Usable Wh ÷ total connected W = {results.usableCapacityWh ?? 'unknown'} ÷ {results.totalConnectedLoadWatts} = {results.continuousRuntimeHours ?? 'not available'} Hours
+                    Runtime estimate = Usable Wh ÷ total connected W ≈ {results.usableCapacityWh ?? 'unknown'} ÷ {results.totalConnectedLoadWatts} ≈ {formatHoursMinutes(results.continuousRuntimeHours)}
                   </p>
                 </div>
 
                 <div className="p-3 rounded-xl bg-surface border border-border space-y-1">
                   <span className="text-muted-foreground block text-[11px]">3. Smart Cycled Runtime:</span>
                   <p className="text-foreground">
-                    Planned runtime estimate = Usable Wh ÷ average planned W = {results.usableCapacityWh ?? 'unknown'} ÷ {results.averageLoadWatts} = {results.smartRuntimeHours ?? 'not available'} Hours
+                    Planned runtime estimate = Usable Wh ÷ average planned W ≈ {results.usableCapacityWh ?? 'unknown'} ÷ {results.averageLoadWatts} ≈ {formatHoursMinutes(results.smartRuntimeHours)}
                   </p>
                 </div>
               </motion.div>
@@ -440,7 +440,7 @@ ${advice.timelineSchedule.map(t => `- **${t.timeSlot}**: ${t.action} [${t.applia
                   <article key={item.id} className="rounded-xl border border-border bg-surface p-3.5">
                     <div className="flex items-start justify-between gap-2">
                       <h4 className="text-xs font-bold text-foreground">{item.title}</h4>
-                      <span className="shrink-0 text-[10px] font-semibold text-emerald-700">{item.results.smartRuntimeHours ?? '—'}h estimated runtime</span>
+                      <span className="shrink-0 text-[10px] font-semibold text-emerald-700">{formatHoursMinutes(item.results.smartRuntimeHours)} estimated runtime</span>
                     </div>
                     <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{item.description}</p>
                     {item.notes.map(note => <p key={note} className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{note}</p>)}

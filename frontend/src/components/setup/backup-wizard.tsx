@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
-  Zap, Sun, Fuel, AlertTriangle, ArrowRight, ArrowLeft, 
+  Zap, Sun, ArrowRight, ArrowLeft, 
   Plus, Minus, Sparkles, Check, Info
 } from 'lucide-react'
 import { SetupInputs, BackupType, BatteryChemistry, PriorityMode, AppliancePriority } from '@/lib/calculations'
@@ -29,17 +29,17 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
   const [currentStep, setCurrentStep] = useState(Math.min(4, Math.max(1, initialStep)))
 
   // Form State
-  const [backupType, setBackupType] = useState<BackupType>(initialInputs?.backupType || 'inverter')
-  const [hasBattery, setHasBattery] = useState<boolean>(initialInputs?.hasBattery ?? true)
+  const [backupType, setBackupType] = useState<BackupType>(initialInputs?.backupType === 'solar' ? 'solar' : 'inverter')
   const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>(initialInputs?.batteryChemistry || 'unknown')
   const [voltage, setVoltage] = useState<number>(initialInputs?.voltage || 0)
-  const [ampHours, setAmpHours] = useState<number>(initialInputs?.ampHours || 0)
+  const [ampHoursInput, setAmpHoursInput] = useState(initialInputs?.ampHours != null ? String(initialInputs.ampHours) : '')
+  const ampHours = ampHoursInput === '' ? 0 : Number(ampHoursInput)
   const [directKwh, setDirectKwh] = useState<number | null>(initialInputs?.directKwh ?? null)
   const [useDirectKwh, setUseDirectKwh] = useState<boolean>(initialInputs?.directKwh != null)
   const [isCapacityUnknown, setIsCapacityUnknown] = useState<boolean>(initialInputs ? initialInputs.isCapacityUnknown : true)
   const [inverterRatingWatts, setInverterRatingWatts] = useState<number | null>(initialInputs ? initialInputs.inverterRatingWatts : null)
   const [inverterRatingVA, setInverterRatingVA] = useState<number | null>(initialInputs?.inverterRatingVA ?? null)
-  const [inverterSurgeWatts, setInverterSurgeWatts] = useState<number | null>(initialInputs?.inverterSurgeWatts ?? null)
+  const inverterSurgeWatts = initialInputs?.inverterSurgeWatts ?? null
   const [solarPanelCount, setSolarPanelCount] = useState<number | null>(initialInputs?.solarPanelCount ?? null)
   const [solarPanelWatts, setSolarPanelWatts] = useState<number | null>(initialInputs?.solarPanelWatts ?? null)
   const [typicalOutageHours, setTypicalOutageHours] = useState<number>(initialInputs?.typicalOutageHours || 4)
@@ -68,19 +68,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
       })
       return map
     }
-    if (initialInputs) return {}
-    return PRESET_APPLIANCES.filter(appliance => appliance.defaultSelected).reduce<Record<string, SelectedAppliance>>((map, appliance) => {
-      const unitCount = appliance.unitCount ?? 1
-      map[appliance.id] = {
-        quantity: unitCount,
-        watts: appliance.wattage / unitCount,
-        surgeWatts: appliance.surgeWattage === undefined ? undefined : appliance.surgeWattage / unitCount,
-        operatingHours: typicalOutageHours,
-        mustRun: false,
-        priority: appliance.isCritical ? 'critical' : 'normal',
-      }
-      return map
-    }, {})
+    return {}
   })
 
   // Custom appliance inputs
@@ -141,8 +129,24 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
     setCustomWatts('')
   }
 
+  const validateRequiredEquipmentDetails = () => {
+    if ((inverterRatingWatts === null || inverterRatingWatts <= 0) && (inverterRatingVA === null || inverterRatingVA <= 0)) {
+      setValidationError('Select the inverter rating shown on its label.')
+      return false
+    }
+    if (backupType === 'solar' && (
+      !Number.isInteger(solarPanelCount) || (solarPanelCount ?? 0) < 1 || (solarPanelCount ?? 0) > 10000 ||
+      !Number.isFinite(solarPanelWatts) || (solarPanelWatts ?? 0) < 1 || (solarPanelWatts ?? 0) > 5000
+    )) {
+      setValidationError('Enter the solar panel count and each panel’s rated wattage.')
+      return false
+    }
+    return true
+  }
+
   const handleFinalSubmit = () => {
     setValidationError('')
+    if (!validateRequiredEquipmentDetails()) return
     if (!Number.isFinite(typicalOutageHours) || typicalOutageHours < 1 || typicalOutageHours > 24) { setValidationError('Choose an outage length between 1 and 24 hours.'); return }
     if (!Number.isFinite(voltage) || voltage < 0 || voltage > 1000 || !Number.isFinite(ampHours) || ampHours < 0 || ampHours > 1000000) { setValidationError('Check the battery voltage and capacity, or leave them blank if you are not sure.'); return }
     if (useDirectKwh && directKwh !== null && (!Number.isFinite(directKwh) || directKwh <= 0 || directKwh > 1000)) { setValidationError('Check the battery capacity in kWh, or leave it blank if you are not sure.'); return }
@@ -163,12 +167,12 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
 
     const payload: SetupInputs = {
       backupType,
-      hasBattery: backupType !== 'none' && hasBattery,
-      batteryChemistry: hasBattery ? batteryChemistry : 'unknown',
-      voltage: hasBattery ? voltage : 0,
-      ampHours: hasBattery ? ampHours : 0,
-      directKwh: hasBattery && useDirectKwh ? directKwh : null,
-      isCapacityUnknown: !hasBattery || isCapacityUnknown,
+      hasBattery: true,
+      batteryChemistry,
+      voltage,
+      ampHours,
+      directKwh: useDirectKwh ? directKwh : null,
+      isCapacityUnknown,
       inverterRatingWatts,
       inverterRatingVA,
       inverterSurgeWatts,
@@ -267,18 +271,6 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                 desc: "Solar panels and a battery system for backup power.",
                 icon: Sun
               },
-              {
-                id: 'generator' as BackupType,
-                title: "Fuel generator",
-                desc: "A petrol, diesel, or gas generator.",
-                icon: Fuel
-              },
-              {
-                id: 'none' as BackupType,
-                title: "No fixed backup system",
-                desc: "A portable power station, power bank, or no system yet.",
-                icon: AlertTriangle
-              }
             ].map(item => {
               const Icon = item.icon
               const isSelected = backupType === item.id
@@ -286,7 +278,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                 <button
                   type="button"
                   key={item.id}
-                  onClick={() => { setBackupType(item.id); setHasBattery(item.id === 'inverter' || item.id === 'solar') }}
+                  onClick={() => setBackupType(item.id)}
                   aria-pressed={isSelected}
                   className={`p-5 rounded-2xl border cursor-pointer text-left transition-all ${
                     isSelected 
@@ -329,14 +321,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
           animate={{ opacity: 1, x: 0 }}
           className="space-y-6 text-left"
         >
-          {backupType !== 'none' ? (
-            <div className="p-6 rounded-2xl border border-border bg-card space-y-6">
-              <label className="block text-sm font-bold text-foreground">Does your backup system include a battery?
-                <select value={hasBattery ? 'yes' : 'no'} onChange={event => setHasBattery(event.target.value === 'yes')} className="mt-2 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-medium text-foreground sm:max-w-xs">
-                  <option value="yes">Yes</option><option value="no">No</option>
-                </select>
-              </label>
-              {hasBattery ? <>
+          <div className="p-6 rounded-2xl border border-border bg-card space-y-6">
               
               {/* Unknown Specs Toggle */}
               <div className="flex items-center justify-between pb-4 border-b border-border">
@@ -437,8 +422,8 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                               type="number"
                               min={1}
                               max={1000000}
-                              value={ampHours}
-                              onChange={e => setAmpHours(e.target.value === '' ? 0 : Number(e.target.value))}
+                              value={ampHoursInput}
+                              onChange={e => setAmpHoursInput(e.target.value.replace(/^0+(?=\d)/, ''))}
                               className="w-full bg-surface border border-border rounded-xl p-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
                             />
                             <span className="text-xs font-mono text-muted-foreground">Ah</span>
@@ -478,7 +463,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                   <Info className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <strong className="block font-bold">You can skip battery details</strong>
-                    PowerUp can still estimate the power needed by your appliances. It needs the battery type and capacity to estimate how long the battery may last.
+                    PowerUp can still estimate the power needed by your appliances. It needs battery type and capacity to estimate runtime.
                     <details className="mt-3 rounded-lg border border-amber-500/20 bg-background/60 p-3 text-foreground">
                       <summary className="cursor-pointer font-semibold">Where do I find these details?</summary>
                       <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
@@ -494,58 +479,60 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                 </div>
               )}
 
-              </> : <p className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-700">No battery is configured. PowerUp can calculate load and energy use, but it will not estimate battery runtime.</p>}
-
-              <details className="border-t border-border pt-4">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground">Add backup unit details (optional)</summary>
-                <p className="mt-2 text-sm text-muted-foreground">Only fill this in if you can find the rating on your inverter, UPS, or generator label.</p>
+              <details open className="border-t border-border pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-foreground">Backup unit details (required)</summary>
+                <p className="mt-2 text-sm text-muted-foreground">Select the rating shown on your inverter or UPS label.</p>
                 <div className="mt-3">
                 <label className="block text-sm text-foreground mb-1">
-                  Power rating (W)
+                  Inverter rating (VA or W) <span aria-hidden="true">*</span>
                 </label>
                 <select
-                  value={inverterRatingWatts ?? ''}
-                  onChange={e => { const watts = e.target.value ? parseInt(e.target.value, 10) : null; setInverterRatingWatts(watts); if (watts !== null) setInverterRatingVA(null) }}
+                  required
+                  value={inverterRatingVA !== null ? `va:${inverterRatingVA}` : inverterRatingWatts !== null ? `w:${inverterRatingWatts}` : ''}
+                  onChange={e => {
+                    const [unit, value] = e.target.value.split(':')
+                    if (unit === 'va') { setInverterRatingVA(Number(value)); setInverterRatingWatts(null) }
+                    else if (unit === 'w') { setInverterRatingWatts(Number(value)); setInverterRatingVA(null) }
+                    else { setInverterRatingWatts(null); setInverterRatingVA(null) }
+                  }}
                   className="w-full sm:max-w-xs bg-surface border border-border rounded-xl p-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
                 >
-                  <option value="">Unknown / not provided</option>
-                  {inverterRatingWatts !== null && ![1000, 1500, 2000, 3000, 5000].includes(inverterRatingWatts) && <option value={inverterRatingWatts}>{inverterRatingWatts.toLocaleString()} W (entered)</option>}
-                  <option value={1000}>1,000 W</option>
-                  <option value={1500}>1,500 W</option>
-                  <option value={2000}>2,000 W</option>
-                  <option value={3000}>3,000 W</option>
-                  <option value={5000}>5,000 W</option>
+                  <option value="" disabled>Select a rating</option>
+                  <optgroup label="Common VA ratings · approximate output watts">
+                    {inverterRatingVA !== null && ![500, 1000, 1500, 2000, 3000].includes(inverterRatingVA) && <option value={`va:${inverterRatingVA}`}>{inverterRatingVA.toLocaleString()} VA (entered)</option>}
+                    <option value="va:500">500 VA — approx. 300–400 W</option>
+                    <option value="va:1000">1,000 VA (1 kVA) — approx. 600–800 W</option>
+                    <option value="va:1500">1,500 VA (1.5 kVA) — approx. 900–1,200 W</option>
+                    <option value="va:2000">2,000 VA (2 kVA) — approx. 1,200–1,600 W</option>
+                    <option value="va:3000">3,000 VA (3 kVA) — approx. 1,800–2,400 W</option>
+                  </optgroup>
+                  <optgroup label="Exact watt ratings (if shown on label)">
+                    {inverterRatingWatts !== null && ![1000, 1500, 2000, 3000, 5000].includes(inverterRatingWatts) && <option value={`w:${inverterRatingWatts}`}>{inverterRatingWatts.toLocaleString()} W (entered)</option>}
+                    <option value="w:1000">1,000 W</option>
+                    <option value="w:1500">1,500 W</option>
+                    <option value="w:2000">2,000 W</option>
+                    <option value="w:3000">3,000 W</option>
+                    <option value="w:5000">5,000 W</option>
+                  </optgroup>
                 </select>
-                <label className="mt-3 block text-sm text-foreground">Rating in VA, if that is what the label shows
-                  <input type="number" min="1" max="100000" value={inverterRatingVA ?? ''} onChange={event => { const va = event.target.value ? Number(event.target.value) : null; setInverterRatingVA(va); if (va !== null) setInverterRatingWatts(null) }} placeholder="Optional label value" className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none sm:max-w-xs" />
-                </label>
-                <label className="mt-3 block text-sm text-foreground">Extra starting power (optional, W)
-                  <input type="number" min={1} max={100000} placeholder="Check the inverter label" value={inverterSurgeWatts ?? ''} onChange={e => setInverterSurgeWatts(e.target.value ? parseInt(e.target.value, 10) : null)} className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none sm:max-w-xs" />
-                </label>
+                <p className="mt-1.5 text-xs text-muted-foreground">VA-to-watt ranges are approximate. PowerUp keeps VA and W separate and uses only a confirmed watt rating for load checks.</p>
                 </div>
               </details>
 
-              {backupType === 'solar' && <details className="border-t border-border pt-4">
-                <summary className="cursor-pointer text-sm font-semibold text-foreground">Add solar panel details (optional)</summary>
+              {backupType === 'solar' && <details open className="border-t border-border pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-foreground">Solar panel details (required)</summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="text-sm text-foreground">Number of solar panels
-                  <input type="number" min="1" max="10000" value={solarPanelCount ?? ''} onChange={event => setSolarPanelCount(event.target.value === '' ? null : Number(event.target.value))} placeholder="Not provided" className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none" />
+                <label className="text-sm text-foreground">Number of solar panels <span aria-hidden="true">*</span>
+                  <input type="number" min="1" max="10000" required value={solarPanelCount ?? ''} onChange={event => setSolarPanelCount(event.target.value === '' ? null : Number(event.target.value))} placeholder="Enter panel count" className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none" />
                 </label>
-                <label className="text-sm text-foreground">Power shown on each panel (W)
-                  <input type="number" min="1" max="5000" value={solarPanelWatts ?? ''} onChange={event => setSolarPanelWatts(event.target.value === '' ? null : Number(event.target.value))} placeholder="Check panel label" className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none" />
+                <label className="text-sm text-foreground">Power shown on each panel (W) <span aria-hidden="true">*</span>
+                  <input type="number" min="1" max="5000" required value={solarPanelWatts ?? ''} onChange={event => setSolarPanelWatts(event.target.value === '' ? null : Number(event.target.value))} placeholder="Check panel label" className="mt-1.5 w-full rounded-xl border border-border bg-surface p-2.5 text-sm font-mono text-foreground focus:border-primary focus:outline-none" />
                 </label>
                 {solarPanelCount && solarPanelWatts && <p className="text-xs text-muted-foreground sm:col-span-2">Configured panel nameplate capacity: <strong className="text-foreground">{solarPanelCount * solarPanelWatts} W</strong>. This is not a generation forecast.</p>}
                 </div>
               </details>}
 
-            </div>
-          ) : (
-            <div className="p-6 rounded-2xl border border-border bg-card">
-              <p className="text-sm text-muted-foreground">
-                You can still choose the appliances you need. PowerUp will estimate the power they use and suggest what size portable backup may help.
-              </p>
-            </div>
-          )}
+          </div>
 
           {/* Outage Duration Slider */}
           <div className="p-6 rounded-2xl border border-border bg-card space-y-3">
@@ -584,12 +571,17 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
               <ArrowLeft className="w-4 h-4" /> Back
             </button>
             <button
-              onClick={() => setCurrentStep(3)}
+              onClick={() => {
+                setValidationError('')
+                if (!validateRequiredEquipmentDetails()) return
+                setCurrentStep(3)
+              }}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-black font-semibold text-sm hover:bg-primary-hover transition-colors"
             >
               Choose appliances <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+          {validationError && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{validationError}</p>}
         </motion.div>
       )}
 
@@ -641,7 +633,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
           </div>
 
           {!initialInputs && <p className="text-sm text-muted-foreground">
-            We have added a few common household appliances to get you started. Remove anything you do not use, or add more below.
+            Choose only the appliances you want to include. Add them below, and adjust their quantity or estimated usage if needed.
           </p>}
 
           {/* Preset Appliances Grid */}

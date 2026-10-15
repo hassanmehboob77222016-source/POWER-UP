@@ -8,12 +8,29 @@ const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const vite = await createServer({ configFile: resolve(frontendRoot, 'vite.config.ts'), server: { middlewareMode: true }, appType: 'custom' })
 after(() => vite.close())
 
-const [{ PRESET_APPLIANCES }, { calculateBackupPlan }, { buildBackupUpgradeScenarios }, { generateBackupAdvice }] = await Promise.all([
+const [{ PRESET_APPLIANCES }, { calculateBackupPlan }, { buildBackupUpgradeScenarios }, { generateBackupAdvice }, { formatHoursMinutes }] = await Promise.all([
   vite.ssrLoadModule('/src/lib/appliances-data.ts'),
   vite.ssrLoadModule('/src/lib/calculations.ts'),
   vite.ssrLoadModule('/src/lib/backup-upgrade-advisor.ts'),
   vite.ssrLoadModule('/src/lib/backup-advice.ts'),
+  vite.ssrLoadModule('/src/lib/duration.ts'),
 ])
+
+test('runtime keeps minute precision and displays hours plus minutes', () => {
+  const inputs = {
+    ...baseInputs(), batteryChemistry: 'lead_acid', voltage: 0, ampHours: 0,
+    directKwh: 350 / (1000 * 0.5 * 0.85),
+    selectedAppliances: [{ applianceId: 'custom-load', customName: 'Test load', watts: 60, quantity: 1, operatingHours: 4 }],
+  }
+  const results = calculateBackupPlan(inputs, PRESET_APPLIANCES)
+  assert.equal(results.isCalculable, true)
+  assert.equal(Math.round(results.smartRuntimeHours * 60), 350)
+  assert.equal(formatHoursMinutes(results.smartRuntimeHours), '5 hr 50 min')
+  assert.equal(formatHoursMinutes(5.9), '5 hr 54 min')
+  assert.equal(formatHoursMinutes(5 + 59.6 / 60), '6 hr 0 min')
+  assert.equal(formatHoursMinutes(null), 'Not available')
+  assert.match(generateBackupAdvice(inputs, results).verdictDescription, /5 hr 50 min/)
+})
 
 function baseInputs({ ampHours = 20, inverterRatingWatts = 1000, surgeWatts = 1500, quantity = 1 } = {}) {
   return {

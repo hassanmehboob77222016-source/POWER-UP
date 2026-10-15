@@ -168,6 +168,155 @@ function evidenceSupportsValue(field: string, value: unknown, evidence: string):
   return Boolean(word && new RegExp(`(?:^|[^a-z])${word}\\s*-?\\s*(?:${unit})(?![a-z])`, 'i').test(evidence))
 }
 
+const spokenNumbers: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+}
+
+function amountBefore(text: string, applianceTerms: string): number {
+  const match = text.match(new RegExp(`\\b(\\d+|one|two|three|four|five|six|seven|eight|nine|ten)\\s+(?:of\\s+)?(?:my\\s+)?(?:led\\s+)?(?:${applianceTerms})\\b`, 'i'))
+  if (!match) return 1
+  return Number(match[1]) || spokenNumbers[match[1].toLowerCase()] || 1
+}
+
+function lastUnitAmount(turns: { role: string; content: string }[], unit: string): number | undefined {
+  let result: number | undefined
+  const pattern = new RegExp(`\\b(\\d+(?:\\.\\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\\s*${unit}\\b`, 'ig')
+  for (const turn of turns) {
+    if (turn.role !== 'user') continue
+    for (const match of turn.content.matchAll(pattern)) result = Number(match[1]) || spokenNumbers[match[1].toLowerCase()]
+  }
+  return result
+}
+
+function practicalIntakeAdvice(request: Extract<AdvisorRequestV1, { action: 'intake' }>): string {
+  const userText = request.turns.filter(turn => turn.role === 'user').map(turn => turn.content).join(' ')
+  const selected = [...(request.confirmedInputs.selectedAppliances ?? [])]
+  const hasItem = (id: string) => selected.some(item => item.applianceId === id)
+  if (!hasItem('wifi-router') && /\b(router|wi[ -]?fi)\b/i.test(userText)) {
+    const item = PRESET_APPLIANCES.find(appliance => appliance.id === 'wifi-router')
+    if (item) selected.push({ applianceId: item.id, quantity: amountBefore(userText, 'routers?'), watts: item.wattage })
+  }
+  if (!hasItem('led-lights') && /\b(lights?|bulbs?)\b/i.test(userText)) {
+    const item = PRESET_APPLIANCES.find(appliance => appliance.id === 'led-lights')
+    if (item) selected.push({ applianceId: item.id, quantity: amountBefore(userText, 'lights?|bulbs?'), watts: item.wattage / (item.unitCount ?? 1) })
+  }
+  const load = selected.reduce((total, item) => {
+    const preset = PRESET_APPLIANCES.find(appliance => appliance.id === item.applianceId)
+    const perUnit = item.watts ?? item.customWatts ?? (preset ? preset.wattage / (preset.unitCount ?? 1) : undefined)
+    return total + (perUnit && Number.isFinite(perUnit) && item.quantity > 0 ? perUnit * item.quantity : 0)
+  }, 0)
+  const hours = request.confirmedInputs.typicalOutageHours ?? lastUnitAmount(request.turns, '(?:h|hrs?|hours?)')
+  const ampHours = request.confirmedInputs.ampHours || lastUnitAmount(request.turns, '(?:ah|amp(?:ere)?[- ]?hours?)')
+  const voltage = request.confirmedInputs.voltage || lastUnitAmount(request.turns, '(?:v|volts?)')
+  const directKwh = request.confirmedInputs.directKwh ?? lastUnitAmount(request.turns, 'kwh')
+  const chemistry = request.confirmedInputs.batteryChemistry && request.confirmedInputs.batteryChemistry !== 'unknown'
+    ? request.confirmedInputs.batteryChemistry
+    : /\b(lifepo4|lithium(?:-ion)?)\b/i.test(userText) ? 'lifepo4'
+      : /\bagm\b/i.test(userText) ? 'agm'
+        : /\blead[ -]?acid\b/i.test(userText) ? 'lead_acid' : 'unknown'
+  const hasUnresolvedBatteryCount = /\b(?:two|2|three|3|four|4)\s+batter(?:y|ies)\b/i.test(userText) && !/\b(total bank|combined bank|bank total|whole bank)\b/i.test(userText)
+  const parts: string[] = []
+  if (selected.length && load > 0) {
+    const names = selected.map(item => {
+      const preset = PRESET_APPLIANCES.find(appliance => appliance.id === item.applianceId)
+      return `${item.quantity} × ${preset?.name ?? item.customName ?? 'appliance'}`
+    }).join(' and ')
+    parts.push(`For ${names}, the appliance catalog estimates about ${Math.round(load)} W total${hours ? ` and ${Math.round(load * hours)} Wh over ${hours} hours` : ''}. Treat that as a planning estimate and check each appliance label.`)
+  } else if (hours) {
+    parts.push(`Your requested backup duration is ${hours} hours. I still need the appliance load to estimate energy demand.`)
+  }
+  if (hasUnresolvedBatteryCount) {
+    parts.push('You mentioned multiple batteries, but the series/parallel setup and whether the voltage and Ah are per battery or for the whole bank are unclear. I will not multiply those ratings; use the total bank values from the inverter label or confirm the bank configuration first.')
+  } else if ((ampHours && voltage || directKwh) && chemistry !== 'unknown' && load > 0) {
+    const estimateHours = hours ?? 1
+    const calculationInputs = {
+      backupType: /\bsolar\b/i.test(userText) ? 'solar' as const : 'inverter' as const,
+      hasBattery: true,
+      batteryChemistry: chemistry,
+      voltage: voltage ?? 0,
+      ampHours: ampHours ?? 0,
+      directKwh: directKwh ?? null,
+      isCapacityUnknown: false,
+      inverterRatingWatts: request.confirmedInputs.inverterRatingWatts ?? null,
+      typicalOutageHours: estimateHours,
+      selectedAppliances: selected.map(item => ({
+        ...item,
+        watts: item.watts ?? item.customWatts ?? (PRESET_APPLIANCES.find(appliance => appliance.id === item.applianceId)?.wattage ?? 0) /
+          (PRESET_APPLIANCES.find(appliance => appliance.id === item.applianceId)?.unitCount ?? 1),
+        operatingHours: hours ?? estimateHours,
+        mustRun: item.mustRun ?? false,
+        priority: item.priority ?? 'normal' as const,
+      })),
+      priorityMode: 'balanced' as const,
+    }
+    const result = calculateBackupPlan(calculationInputs, PRESET_APPLIANCES)
+    if (result.continuousRuntimeHours !== null && result.usableCapacityWh !== null) {
+      const runtimeMinutes = Math.round(result.continuousRuntimeHours * 60)
+      const runtimeLabel = `${Math.floor(runtimeMinutes / 60)} hr ${runtimeMinutes % 60} min`
+      parts.push(`Using the stated battery details and the catalog load, usable energy is about ${result.usableCapacityWh} Wh and continuous runtime is roughly ${runtimeLabel}. This estimate applies the app's ${Math.round((result.depthOfDischargeRatio ?? 0) * 100)}% chemistry-based discharge limit and ${Math.round(result.inverterEfficiencyRatio * 100)}% inverter-efficiency assumption; actual runtime varies with battery condition, temperature, load, and protection limits.`)
+      if (hours) parts.push(result.continuousRuntimeHours >= hours ? `That is above your ${hours}-hour target in this estimate, subject to those assumptions.` : `That is below your ${hours}-hour target in this estimate; prioritize only essential appliances.`)
+    } else {
+      parts.push('The entered details still do not support a reliable runtime calculation. Check the bank values and load before relying on an estimate.')
+    }
+  } else if (ampHours && !voltage) {
+    parts.push(`You provided ${ampHours} Ah, but amp-hours alone are not watt-hours. Without the battery-bank voltage, nominal energy and backup runtime cannot be calculated reliably.`)
+  } else if (ampHours && voltage) {
+    parts.push(`Your stated ${voltage} V and ${ampHours} Ah imply about ${Math.round(voltage * ampHours)} Wh nominal battery energy. Runtime still needs a known battery chemistry so PowerUp can apply a clearly labeled discharge-limit assumption.`)
+  } else if (directKwh) {
+    parts.push(`You provided ${directKwh} kWh nominal battery capacity. Runtime still needs the battery chemistry and appliance load so usable energy can be estimated with the assumptions shown.`)
+  } else {
+    parts.push('I cannot say whether the battery will last for the requested duration until its capacity and bank voltage are known. I will not assume a voltage or invent a runtime.')
+  }
+  parts.push('Practical step: keep the router and only the lights you need on, and leave higher-draw appliances off until the inverter and battery labels are checked.')
+  return parts.join(' ')
+}
+
+function rulesBasedIntakeReply(request: Extract<AdvisorRequestV1, { action: 'intake' }>): Extract<AdvisorResponseV1, { action: 'intake' }> {
+  const latest = request.turns[request.turns.length - 1]?.content.trim() ?? ''
+  const acknowledgement = /^(?:ok(?:ay)?|sure|thanks|thank you|got it)[.! ]*$/i.test(latest)
+  const unknownReply = /^(?:i\s+)?(?:don't|do not)\s+know[.! ]*$/i.test(latest)
+  const userText = request.turns.filter(turn => turn.role === 'user').map(turn => turn.content).join(' ')
+  const hours = request.confirmedInputs.typicalOutageHours ?? lastUnitAmount(request.turns, '(?:h|hrs?|hours?)')
+  const ampHours = request.confirmedInputs.ampHours || lastUnitAmount(request.turns, '(?:ah|amp(?:ere)?[- ]?hours?)')
+  const voltage = request.confirmedInputs.voltage || lastUnitAmount(request.turns, '(?:v|volts?)')
+  const hasAppliances = Boolean(request.confirmedInputs.selectedAppliances?.length) || /\b(router|wi[ -]?fi|lights?|bulbs?|fan|fridge|refrigerator|laptop|television|tv)\b/i.test(userText)
+  let missingField: string | undefined
+  let question = ''
+  if (!acknowledgement && !unknownReply) {
+    if (!hasAppliances) { missingField = 'selectedAppliances'; question = 'Which appliances do you need to keep running?' }
+    else if (!hours) { missingField = 'typicalOutageHours'; question = 'How many hours of backup do you need?' }
+    else if (!ampHours && request.confirmedInputs.directKwh == null) { missingField = 'ampHours'; question = 'What battery capacity is printed on its label in Ah? If you do not know, say so and I will keep runtime unknown.' }
+    else if (!voltage) { missingField = 'voltage'; question = 'What nominal voltage is printed on the battery or bank label? Do not guess if you cannot find it.' }
+    else if ((!request.confirmedInputs.batteryChemistry || request.confirmedInputs.batteryChemistry === 'unknown') && !/\b(lifepo4|lithium(?:-ion)?|agm|lead[ -]?acid)\b/i.test(userText)) { missingField = 'batteryChemistry'; question = 'Do you know the battery chemistry (for example, lead-acid, AGM, or LiFePO4)? If not, I can keep runtime conditional.' }
+  }
+  const assistantMessage = `The AI model is unavailable right now, so this is a rules-based assessment using only your supplied details and PowerUp's appliance catalog. ${practicalIntakeAdvice(request)}`
+  return {
+    version: AI_ADVISOR_CONTRACT_VERSION, action: 'intake', confirmedInputs: request.confirmedInputs,
+    assistantMessage: assistantMessage.slice(0, 1000),
+    missingQuestions: missingField ? [{ field: missingField as keyof AdvisorSetupInputs | 'selectedAppliances', question }] : [],
+    proposedChanges: [], safetyNotes: [],
+  }
+}
+
+function alreadyProvided(field: string, request: Extract<AdvisorRequestV1, { action: 'intake' }>, reply: Extract<AdvisorResponseV1, { action: 'intake' }>): boolean {
+  if (reply.proposedChanges.some(proposal => proposal.kind === 'set_field' && proposal.field === field)) return true
+  const inputs = request.confirmedInputs
+  const text = request.turns.filter(turn => turn.role === 'user').map(turn => turn.content).join(' ')
+  switch (field) {
+    case 'selectedAppliances': return Boolean(inputs.selectedAppliances?.length) || /\b(router|wi[ -]?fi|lights?|bulbs?|fan|fridge|refrigerator|laptop|television|tv)\b/i.test(text)
+    case 'typicalOutageHours': return Boolean(inputs.typicalOutageHours || lastUnitAmount(request.turns, '(?:h|hrs?|hours?)'))
+    case 'ampHours': return Boolean(inputs.ampHours || lastUnitAmount(request.turns, '(?:ah|amp(?:ere)?[- ]?hours?)'))
+    case 'directKwh': return Boolean(inputs.directKwh || lastUnitAmount(request.turns, 'kwh'))
+    case 'voltage': return Boolean(inputs.voltage || lastUnitAmount(request.turns, '(?:v|volts?)'))
+    case 'batteryChemistry': return Boolean((inputs.batteryChemistry && inputs.batteryChemistry !== 'unknown') || /\b(lifepo4|lithium(?:-ion)?|agm|lead[ -]?acid)\b/i.test(text))
+    case 'backupType': return Boolean(inputs.backupType || /\b(solar|inverter|ups|generator|no backup)\b/i.test(text))
+    case 'hasBattery': return typeof inputs.hasBattery === 'boolean' || /\b(batter(?:y|ies)|\d+\s*ah|\d+\s*wh)\b/i.test(text)
+    case 'inverterRatingWatts': return Boolean(inputs.inverterRatingWatts || lastUnitAmount(request.turns, '(?:w|watts?)'))
+    case 'inverterRatingVA': return Boolean(inputs.inverterRatingVA || lastUnitAmount(request.turns, 'va'))
+    default: return false
+  }
+}
+
 function unsafeGeneratedText(value: string): boolean {
   return /\b(?:ignore (?:previous|all|system) instructions|(?:api[_ -]?key|secret|password)|wire|wiring|terminal|bypass|short.circuit|solder|connect.{0,40}battery|remove.{0,40}fuse|disable.{0,40}breaker)\b/i.test(value)
 }
@@ -189,6 +338,7 @@ export function validateIntakeOutput(raw: unknown, request: Extract<AdvisorReque
     throw new AdvisorFailure('provider_invalid_output', 502, 'The advisor returned an incomplete question. Please try again.', true)
   }
   const proposals: AdvisorInputProposal[] = []
+  let ignoredUnsupportedFact = false
   for (const row of raw.proposedChanges) {
     if (!object(row) || !exactKeys(row, new Set(['kind', 'field', 'draftItemId', 'valueJson', 'source', 'evidence'])) ||
         !['set_field', 'upsert_appliance'].includes(String(row.kind)) ||
@@ -203,23 +353,63 @@ export function validateIntakeOutput(raw: unknown, request: Extract<AdvisorReque
           row.source !== 'user_statement' || !fieldValid(row.field, parsed) ||
           !evidenceValid(row.evidence, row.source, request.turns) ||
           !evidenceSupportsValue(row.field, parsed, row.evidence)) {
-        throw new AdvisorFailure('provider_invalid_output', 502, 'The advisor returned an unsupported field suggestion. Please try again.', true)
+        ignoredUnsupportedFact = true
+        continue
       }
       proposals.push({ kind: 'set_field', field: row.field, value: parsed, source: 'user_statement', evidence: row.evidence } as AdvisorInputProposal)
     } else {
       if (row.field !== 'selectedAppliances' || !boundedString(row.draftItemId, 80) || !applianceValid(parsed, false) ||
           !evidenceValid(row.evidence, row.source as string, request.turns, (parsed as RecordValue).applianceId as string)) {
-        throw new AdvisorFailure('provider_invalid_output', 502, 'The advisor returned an invalid appliance suggestion. Please try again.', true)
+        ignoredUnsupportedFact = true
+        continue
       }
       proposals.push({ kind: 'upsert_appliance', draftItemId: row.draftItemId, value: parsed, source: row.source, evidence: row.evidence } as AdvisorInputProposal)
     }
   }
   return {
     version: AI_ADVISOR_CONTRACT_VERSION, action: 'intake', confirmedInputs: request.confirmedInputs,
-    assistantMessage: raw.assistantMessage,
+    assistantMessage: ignoredUnsupportedFact
+      ? `${raw.assistantMessage} I used only the details supported by your messages; any unverified suggestion was left out.`.slice(0, 1000)
+      : raw.assistantMessage,
     missingQuestions: missingField === '' ? [] : [{ field: missingField as keyof AdvisorSetupInputs, question: raw.missingQuestionText }],
     proposedChanges: proposals, safetyNotes: raw.safetyNotes,
   }
+}
+
+// Numeric facts with explicit units are cheap to extract deterministically. This
+// protects common one-token follow-ups from being lost when the model misses them.
+function mergeExplicitNumericFacts(raw: unknown, request: Extract<AdvisorRequestV1, { action: 'intake' }>): unknown {
+  if (!object(raw) || !Array.isArray(raw.proposedChanges)) return raw
+  const latest = request.turns[request.turns.length - 1]?.content ?? ''
+  const matches: { field: string; value: number; evidence: string }[] = []
+  const patterns: [string, RegExp][] = [
+    ['ampHours', /\b(\d+(?:\.\d+)?)\s*(ah|amp(?:ere)?[- ]?hours?)\b/ig],
+    ['voltage', /\b(\d+(?:\.\d+)?)\s*(v|volts?)\b/ig],
+    ['typicalOutageHours', /\b(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/ig],
+    ['directKwh', /\b(\d+(?:\.\d+)?)\s*kwh\b/ig],
+    ['inverterRatingWatts', /\b(\d+(?:\.\d+)?)\s*(w|watts?)\b/ig],
+    ['inverterRatingVA', /\b(\d+(?:\.\d+)?)\s*va\b/ig],
+  ]
+  for (const [field, pattern] of patterns) {
+    for (const match of latest.matchAll(pattern)) {
+      const value = Number(match[1])
+      if (!Number.isFinite(value) || !fieldValid(field, value)) continue
+      matches.push({ field, value, evidence: match[0] })
+    }
+  }
+  let proposals = raw.proposedChanges
+  for (const match of matches) {
+    const existing = proposals.find((proposal: unknown) => object(proposal) && proposal.kind === 'set_field' && proposal.field === match.field)
+    if (object(existing)) {
+      let existingValue: unknown
+      try { existingValue = JSON.parse(String(existing.valueJson)) } catch { existingValue = undefined }
+      if (existingValue === match.value && evidenceValid(String(existing.evidence ?? ''), 'user_statement', request.turns) &&
+          evidenceSupportsValue(match.field, existingValue, String(existing.evidence ?? ''))) continue
+      proposals = proposals.filter((proposal: unknown) => proposal !== existing)
+    }
+    proposals = proposals.concat({ kind: 'set_field', field: match.field, draftItemId: '', valueJson: JSON.stringify(match.value), source: 'user_statement', evidence: match.evidence })
+  }
+  return { ...raw, proposedChanges: proposals }
 }
 
 function safeNarrative(value: unknown, max: number): value is string {
@@ -234,7 +424,7 @@ function fallbackExplanation(request: Extract<AdvisorRequestV1, { action: 'expla
       summary: results.isCalculable ? 'This is a planning estimate based on your confirmed equipment and appliance details.' : 'The available details support load and energy estimates, while runtime needs more specifications.',
       recommendations: [{ text: 'Check each appliance label and the equipment specifications before relying on the estimate.', groundedIn: ['totalConnectedLoadWatts', 'estimatedEnergyWh'] }],
       missingSpecifications: results.missingDetailsReason ? [results.missingDetailsReason] : [],
-      safetyNotes: ['Do not change electrical wiring or battery connections based on this estimate.'],
+      safetyNotes: ['Have a qualified professional handle electrical or battery-system changes.'],
     },
   }
 }
@@ -306,13 +496,30 @@ export function createAdvisorHandler(dependencies: AdvisorDependencies) {
     try {
       const payload = validateAdvisorRequest(await readBody(request))
       const identity = await dependencies.authenticate(request)
-      dependencies.checkProviderConfiguration?.()
       const allowed = await dependencies.consumeQuota(identity)
       if (!allowed) throw new AdvisorFailure('rate_limited', 429, 'The advisor limit has been reached. Please try again later.', true)
       if (payload.action === 'intake') {
-        const raw = await dependencies.callProvider(payload)
-        return json(validateIntakeOutput(raw, payload))
+        let reply: Extract<AdvisorResponseV1, { action: 'intake' }>
+        try {
+          dependencies.checkProviderConfiguration?.()
+          const raw = await dependencies.callProvider(payload)
+          reply = validateIntakeOutput(mergeExplicitNumericFacts(raw, payload), payload)
+        } catch {
+          reply = rulesBasedIntakeReply(payload)
+        }
+        const latestUserMessage = payload.turns[payload.turns.length - 1]?.content.trim() ?? ''
+        const acknowledgement = /^(?:ok(?:ay)?|sure|thanks|thank you|got it)[.! ]*$/i.test(latestUserMessage)
+        const advice = practicalIntakeAdvice(payload)
+        const genericFallback = /^I kept only details I could verify from your message\./i.test(reply.assistantMessage)
+        if (!reply.assistantMessage.startsWith('The AI model is unavailable right now')) {
+          reply.assistantMessage = (genericFallback ? advice : `${reply.assistantMessage}\n\nPractical assessment: ${advice}`).slice(0, 1000)
+        }
+        reply.missingQuestions = acknowledgement
+          ? []
+          : reply.missingQuestions.filter(question => !alreadyProvided(question.field, payload, reply))
+        return json(reply)
       }
+      dependencies.checkProviderConfiguration?.()
       const results = calculateBackupPlan(payload.confirmedInputs, PRESET_APPLIANCES)
       try {
         const raw = await dependencies.callProvider(payload, results)

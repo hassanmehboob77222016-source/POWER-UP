@@ -1,4 +1,5 @@
 import type { SetupInputs, CalculationResults } from './calculations'
+import { formatHoursMinutes } from './duration'
 
 export interface BackupAdvice {
   verdictTitle: string
@@ -65,7 +66,7 @@ export function generateBackupAdvice(inputs: SetupInputs, results: CalculationRe
     ? results.isSufficient ? 'Estimated runtime covers the entered outage' : 'Estimated runtime is shorter than the entered outage'
     : 'Load and energy estimate available · runtime needs more details'
   const description = results.isCalculable
-    ? `For ${mode.toLowerCase()}, estimated energy use is ${results.plannedEnergyWh} Wh over ${inputs.typicalOutageHours} hours. Estimated runtime is ${results.smartRuntimeHours} hours. This is a planning estimate, not a guarantee.`
+    ? `For ${mode.toLowerCase()}, estimated energy use is ${results.plannedEnergyWh} Wh over ${inputs.typicalOutageHours} hours. Estimated runtime is ${formatHoursMinutes(results.smartRuntimeHours)}. This is a planning estimate, not a guarantee.`
     : `${results.totalConnectedLoadWatts} W total connected load and ${results.estimatedEnergyWh} Wh estimated energy use from the entered appliances. Runtime is not shown: ${results.missingDetailsReason ?? 'required specifications are missing'}.`
 
   return {

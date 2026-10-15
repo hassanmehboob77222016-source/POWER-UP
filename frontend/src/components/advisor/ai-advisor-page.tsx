@@ -120,6 +120,7 @@ export function AiAdvisorPage({ onContinue, onManual }: Props) {
   const [customName, setCustomName] = useState('')
   const [customWatts, setCustomWatts] = useState('')
   const mounted = useRef(true)
+  const requestSequence = useRef(0)
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
@@ -137,22 +138,36 @@ export function AiAdvisorPage({ onContinue, onManual }: Props) {
   }
 
   const ask = async (request: Extract<AdvisorRequestV1, { action: 'intake' }>) => {
+    const sequence = ++requestSequence.current
     setLoading(true); setError(''); setRetryable(false); setPending(request)
     try {
       const reply = await requestAdvisorIntake(request)
-      if (!mounted.current) return
+      if (!mounted.current || sequence !== requestSequence.current) return
       const nextQuestion = reply.missingQuestions[0]?.question ?? ''
       const assistantTurn = `${reply.assistantMessage}${nextQuestion ? `\n${nextQuestion}` : ''}`.slice(0, AI_ADVISOR_LIMITS.maxTurnCharacters)
       setTurns([...request.turns, { role: 'assistant', content: assistantTurn }])
       setQuestion(nextQuestion)
-      setProposals(reply.proposedChanges)
+      // Facts explicitly stated by the user belong in the unsaved conversation draft.
+      // Catalog-derived appliance defaults remain suggestions for the user to review.
+      const statedFacts = reply.proposedChanges.filter(proposal => proposal.source === 'user_statement')
+      for (const proposal of statedFacts) {
+        if (proposal.kind === 'set_field') {
+          setConfirmed(previous => ({ ...previous, [proposal.field]: proposal.value }))
+        } else {
+          setConfirmed(previous => ({
+            ...previous,
+            selectedAppliances: [...(previous.selectedAppliances ?? []).filter(item => item.applianceId !== proposal.value.applianceId), proposal.value],
+          }))
+        }
+      }
+      setProposals(reply.proposedChanges.filter(proposal => proposal.source !== 'user_statement'))
       setSafetyNotes(reply.safetyNotes)
       setPending(null)
     } catch (cause) {
-      if (!mounted.current) return
+      if (!mounted.current || sequence !== requestSequence.current) return
       setError(cause instanceof Error ? cause.message : 'The AI Advisor is unavailable. Use the manual calculator.')
       setRetryable(!(cause instanceof AdvisorClientError) || cause.retryable)
-    } finally { if (mounted.current) setLoading(false) }
+    } finally { if (mounted.current && sequence === requestSequence.current) setLoading(false) }
   }
 
   const send = (event: FormEvent) => {

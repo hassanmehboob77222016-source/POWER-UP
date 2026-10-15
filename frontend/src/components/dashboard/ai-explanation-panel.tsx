@@ -1,6 +1,7 @@
 import { LoaderCircle, RotateCcw, Sparkles } from 'lucide-react'
 import type { AdvisorResponseV1 } from '@/lib/ai-advisor-contract'
 import type { CalculationResults } from '@/lib/calculations'
+import { formatHoursMinutes } from '@/lib/duration'
 
 type Explanation = Extract<AdvisorResponseV1, { action: 'explain' }>
 
@@ -34,7 +35,7 @@ function groundedValue(field: keyof CalculationResults, results: CalculationResu
   if (typeof value !== 'number') return 'Not available'
   if (field.endsWith('Ratio')) return `${Math.round(value * 100)}% assumed`
   if (field.endsWith('Percentage')) return `${value}% estimated`
-  if (field.endsWith('Hours')) return `${value} h estimated`
+  if (field.endsWith('Hours')) return `${formatHoursMinutes(value)} estimated`
   if (field.endsWith('Wh')) return `${value.toLocaleString()} Wh`
   if (field.endsWith('Watts')) return `${value.toLocaleString()} W`
   return String(value)

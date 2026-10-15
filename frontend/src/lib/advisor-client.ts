@@ -12,6 +12,16 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/** Compare JSON data independent of object insertion order while preserving array order. */
+export function advisorValuesEqual(left: unknown, right: unknown): boolean {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical)
+    if (record(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
+    return value
+  }
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right))
+}
+
 function unsafeGeneratedText(value: string): boolean {
   return /\b(?:ignore (?:previous|all|system) instructions|(?:api[_ -]?key|secret|password)|wire|wiring|terminal|bypass|short.circuit|solder|connect.{0,40}battery|remove.{0,40}fuse|disable.{0,40}breaker)\b/i.test(value)
 }
@@ -78,7 +88,7 @@ async function invokeAdvisor(request: AdvisorRequestV1): Promise<unknown> {
 export async function requestAdvisorIntake(request: Extract<AdvisorRequestV1, { action: 'intake' }>): Promise<Extract<AdvisorResponseV1, { action: 'intake' }>> {
   const data = await invokeAdvisor(request)
   if (!isIntakeResponse(data)) throw new AdvisorClientError('The AI Advisor returned an invalid reply. Retry or use the manual calculator.')
-  if (JSON.stringify(data.confirmedInputs) !== JSON.stringify(request.confirmedInputs)) {
+  if (!advisorValuesEqual(data.confirmedInputs, request.confirmedInputs)) {
     throw new AdvisorClientError('The AI Advisor returned inconsistent confirmed details. Please retry.', false)
   }
   return data
@@ -98,6 +108,11 @@ function safeNarrative(value: unknown, max: number): value is string {
     !/\p{N}/u.test(value) && !unsafeGeneratedText(value)
 }
 
+function safeSafetyNote(value: unknown): value is string {
+  // Older Edge Function deployments use this fixed precaution in their rules fallback.
+  return safeNarrative(value, 240) || value === 'Do not change electrical wiring or battery connections based on this estimate.'
+}
+
 function isExplanationResponse(value: unknown): value is Extract<AdvisorResponseV1, { action: 'explain' }> {
   if (!record(value) || !record(value.confirmedInputs) || !record(value.calculatedResults) || !record(value.explanation)) return false
   const narrative = value.explanation
@@ -111,7 +126,7 @@ function isExplanationResponse(value: unknown): value is Extract<AdvisorResponse
     Array.isArray(narrative.missingSpecifications) && narrative.missingSpecifications.length <= 1 &&
     narrative.missingSpecifications.every((item: unknown) => typeof item === 'string' && item.length <= 500) &&
     Array.isArray(narrative.safetyNotes) && narrative.safetyNotes.length <= 3 &&
-    narrative.safetyNotes.every((item: unknown) => safeNarrative(item, 240))
+    narrative.safetyNotes.every((item: unknown) => safeSafetyNote(item))
 }
 
 /** Accept model prose only when the Edge Function echoes the same confirmed inputs and calculation. */
@@ -119,12 +134,12 @@ export async function requestAdvisorExplanation(inputs: SetupInputs, localResult
   const { notes: _excludedNotes, ...confirmedInputs } = inputs
   const data = await invokeAdvisor({ version: AI_ADVISOR_CONTRACT_VERSION, action: 'explain', locale, confirmedInputs })
   if (!isExplanationResponse(data)) throw new AdvisorClientError('The advisor returned an invalid explanation. PowerUp’s calculated results remain available.')
-  if (JSON.stringify(data.confirmedInputs) !== JSON.stringify(confirmedInputs) ||
-      JSON.stringify(data.calculatedResults) !== JSON.stringify(localResults)) {
+  if (!advisorValuesEqual(data.confirmedInputs, confirmedInputs) ||
+      !advisorValuesEqual(data.calculatedResults, localResults)) {
     throw new AdvisorClientError('The advisor’s explanation did not match this plan. PowerUp is showing the local calculation and rule-based advice.', false)
   }
   const expectedMissing = localResults.missingDetailsReason ? [localResults.missingDetailsReason] : []
-  if (JSON.stringify(data.explanation.missingSpecifications) !== JSON.stringify(expectedMissing)) {
+  if (!advisorValuesEqual(data.explanation.missingSpecifications, expectedMissing)) {
     throw new AdvisorClientError('The advisor returned unsupported missing details. PowerUp is showing rule-based advice.', false)
   }
   return data
