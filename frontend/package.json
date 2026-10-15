@@ -10,6 +10,7 @@
     "test:backup-upgrades": "node --test scripts/test-backup-upgrades.mjs",
     "test:monitoring-data": "node --test scripts/test-monitoring-data.mjs",
     "test:ai-advisor": "node --test scripts/test-ai-advisor.mjs",
+    "test:plan-saving": "node --test scripts/test-plan-saving.mjs",
     "verify:groq": "node scripts/verify-groq-provider.mjs"
   },
   "dependencies": {

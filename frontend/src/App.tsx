@@ -16,6 +16,7 @@ const AiAdvisorPage = lazy(() => import('@/components/advisor/ai-advisor-page').
 import { useAuth } from '@/context/auth-context'
 import { supabase } from '@/lib/supabase'
 import type { Json } from '@/lib/database.types'
+import { requireSavedPlanId, toPlanSaveError } from '@/lib/plan-save'
 import { SetupInputs, CalculationResults, calculateBackupPlan } from '@/lib/calculations'
 import { generateBackupAdvice, type BackupAdvice } from '@/lib/backup-advice'
 import { buildBackupUpgradeScenarios } from '@/lib/backup-upgrade-advisor'
@@ -28,17 +29,6 @@ type Screen = 'home' | 'advisor' | 'setup' | 'results' | 'dashboard' | 'plans' |
 interface AuthDraft { screen: Screen; userInputs: SetupInputs | null; calcResults: CalculationResults | null; backupAdvice: BackupAdvice | null; savedPlanId: string | null; savedPlanName: string; savePlanAfterAuth: boolean; advisorLocale?: AdvisorLocale }
 const AUTH_DRAFT_KEY = 'powerup-auth-return'
 const PENDING_PLAN_ID_KEY = 'powerup-pending-plan-id'
-
-function toPlanSaveError(error: { code?: string; message?: string }) {
-  const detail = [error.message, error.code ? `(${error.code})` : null].filter(Boolean).join(' ')
-  if (error.code === 'PGRST205') {
-    return new Error(`PowerUp cannot find the backup_plans table in the Supabase project configured for this app. Verify VITE_SUPABASE_URL points to the intended project and that the saved-plan migrations have been applied. No plan was saved. ${detail}`)
-  }
-  if (error.code === '42501') {
-    return new Error(`Supabase denied saving this plan. Confirm that the plan ID insert grant migration 20261012020000 has been applied to this project and that the signed-in user owns the plan. ${detail}`)
-  }
-  return new Error(detail || 'Supabase returned an unknown plan save error.')
-}
 
 function readPendingPlanId() {
   try { return sessionStorage.getItem(PENDING_PLAN_ID_KEY) } catch { return null }
@@ -212,8 +202,7 @@ export function App() {
     if (savedPlanId) {
       const { user_id: _owner, ...planFields } = record
       const { data, error } = await supabase.from('backup_plans').update(planFields).eq('id', savedPlanId).eq('user_id', user.id).select('id').maybeSingle()
-      if (error) throw toPlanSaveError(error)
-      if (!data) throw new Error('This saved plan is no longer available to your account. Refresh My Plans and try again.')
+      requireSavedPlanId({ data, error }, 'This saved plan is no longer available to your account. Refresh My Plans and try again.')
     } else {
       const id = pendingPlanId.current ?? crypto.randomUUID()
       pendingPlanId.current = id
@@ -226,12 +215,9 @@ export function App() {
         if (!existing) throw toPlanSaveError(error)
         const { user_id: _owner, ...planFields } = record
         const { data: updated, error: updateError } = await supabase.from('backup_plans').update(planFields).eq('id', id).eq('user_id', user.id).select('id').maybeSingle()
-        if (updateError) throw toPlanSaveError(updateError)
-        if (!updated) throw new Error('This saved plan is no longer available to your account. Refresh My Plans and try again.')
-        setSavedPlanId(updated.id)
+        setSavedPlanId(requireSavedPlanId({ data: updated, error: updateError }, 'This saved plan is no longer available to your account. Refresh My Plans and try again.'))
       } else {
-        if (error) throw toPlanSaveError(error)
-        setSavedPlanId(data.id)
+        setSavedPlanId(requireSavedPlanId({ data, error }))
       }
       pendingPlanId.current = null
       try { sessionStorage.removeItem(PENDING_PLAN_ID_KEY) } catch { /* Ignore unavailable storage. */ }

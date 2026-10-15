@@ -172,6 +172,43 @@ test('fallback advice formats a known runtime in hours and minutes', async () =>
   assert.deepEqual(body.missingQuestions, [])
 })
 
+test('model fallback uses all stated appliances and wattages without treating appliance watts as inverter watts', async () => {
+  const message = 'I have 1 router 9w, four lights each 8w, two fans each 70w. I have 3kw solar inverter, battery capacity is 160 ah, battery volt is 12v, How much backup time will my battery provide?'
+  const request = { ...intake, turns: [{ role: 'user', content: message }] }
+  const fallback = await handler({ callProvider: async () => { throw new AdvisorFailure('provider_unavailable', 503, 'Provider unavailable.', true) } })(post(request))
+  assert.equal(fallback.status, 200)
+  const body = await fallback.json()
+  assert.match(body.assistantMessage, /181 W total/)
+  assert.match(body.assistantMessage, /1920 Wh nominal/)
+  assert.match(body.assistantMessage, /3000 W inverter rating/)
+  assert.match(body.assistantMessage, /4 hr 30 min.*lead-acid/i)
+  assert.match(body.assistantMessage, /8 hr 7 min.*LiFePO4/i)
+  assert.match(body.assistantMessage, /neither is a reliable prediction/i)
+  assert.doesNotMatch(body.assistantMessage, /48 W total/)
+  assert.equal(body.proposedChanges.find(item => item.kind === 'set_field' && item.field === 'ampHours')?.value, 160)
+  assert.equal(body.proposedChanges.find(item => item.kind === 'set_field' && item.field === 'voltage')?.value, 12)
+  assert.equal(body.proposedChanges.find(item => item.kind === 'set_field' && item.field === 'inverterRatingWatts')?.value, 3000)
+  assert.deepEqual(body.proposedChanges.filter(item => item.kind === 'upsert_appliance').map(item => item.value.quantity * item.value.watts).sort((a, b) => a - b), [9, 32, 140])
+
+  const model = await handler({ callProvider: async () => ({ ...intakeModel, proposedChanges: [] }) })(post(request))
+  const modelBody = await model.json()
+  assert.deepEqual(modelBody.proposedChanges.filter(item => item.kind === 'set_field' && item.field === 'inverterRatingWatts').map(item => item.value), [3000])
+})
+
+test('a bare follow-up number answers the preceding duration question when the model fails', async () => {
+  const request = { ...intake, turns: [
+    { role: 'user', content: 'I have a router and two lights with a 12V 160Ah battery.' },
+    { role: 'assistant', content: 'How many hours of backup do you need?' },
+    { role: 'user', content: '2' },
+  ] }
+  const response = await handler({ callProvider: async () => { throw new AdvisorFailure('provider_unavailable', 503, 'Provider unavailable.', true) } })(post(request))
+  const body = await response.json()
+  assert.equal(body.proposedChanges.find(item => item.kind === 'set_field' && item.field === 'typicalOutageHours')?.value, 2)
+  assert.match(body.assistantMessage, /over 2 hours/i)
+  assert.doesNotMatch(body.assistantMessage, /How many hours of backup/i)
+  assert.deepEqual(body.missingQuestions.filter(item => item.field === 'typicalOutageHours'), [])
+})
+
 test('battery runtime stays unknown without voltage, and appliance load uses quantity times watts', () => {
   const base = {
     ...explain.confirmedInputs,
@@ -363,7 +400,7 @@ test('provider adapter bounds errors and sends a strict JSON schema without leak
     permanentAttempts += 1
     return new Response('invalid provider key', { status: 401 })
   } })
-  await assert.rejects(permanent(intake), error => error.code === 'provider_unavailable')
+  await assert.rejects(permanent(intake), error => error.code === 'not_configured')
   assert.equal(permanentAttempts, 1)
 
   const limited = createGroqProvider({ key: 'test-key', fetcher: async () => new Response('secret provider body', { status: 429 }) })

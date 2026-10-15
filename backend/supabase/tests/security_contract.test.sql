@@ -3,7 +3,44 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, auth;
 
-select plan(60);
+select plan(88);
+
+-- A saved plan contains the calculator inputs and a separate result/advice
+-- snapshot. Empty appliance arrays are supported by the database contract.
+create temporary table plan_test_payload as
+select
+  jsonb_build_object(
+    'backupType', 'inverter', 'hasBattery', true, 'batteryChemistry', 'unknown',
+    'voltage', 0, 'ampHours', 0, 'directKwh', null, 'isCapacityUnknown', true,
+    'inverterRatingWatts', null, 'typicalOutageHours', 4,
+    'selectedAppliances', '[]'::jsonb, 'priorityMode', 'balanced'
+  ) as configuration,
+  '[]'::jsonb as appliances,
+  jsonb_build_object(
+    'calculation', jsonb_build_object(
+      'isCalculable', false, 'nominalCapacityWh', null, 'depthOfDischargeRatio', null,
+      'inverterEfficiencyRatio', 0.85, 'usableCapacityWh', null,
+      'totalConnectedLoadWatts', 0, 'continuousLoadWatts', 0,
+      'smartCycledLoadWatts', 0, 'estimatedEnergyWh', 0, 'plannedEnergyWh', 0,
+      'recommendedBatteryCapacityWh', null, 'recommendedInverterWatts', null,
+      'averageLoadWatts', 0, 'peakSurgeWatts', null,
+      'continuousRuntimeHours', null, 'smartRuntimeHours', null,
+      'targetOutageHours', 4, 'isSufficient', null,
+      'runtimeSurplusDeficitHours', null, 'batteryPercentageAtOutageEnd', null,
+      'inverterLoadPercentage', null, 'surgeWarning', null,
+      'applianceTiers', jsonb_build_object(
+        'tier1AlwaysOn', '[]'::jsonb, 'tier2Cycled', '[]'::jsonb, 'tier3Restricted', '[]'::jsonb
+      )
+    ),
+    'advice', jsonb_build_object(
+      'verdictTitle', 'Runtime needs more details',
+      'verdictDescription', 'Capacity is unknown.',
+      'tacticalRecommendations', '[]'::jsonb,
+      'timelineSchedule', '[]'::jsonb,
+      'assumptionsNotes', '[]'::jsonb
+    )
+  ) as results;
+grant select on plan_test_payload to authenticated;
 
 -- Minimal Supabase Auth fixtures; the profile creation trigger also runs here.
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at) values
@@ -11,9 +48,10 @@ insert into auth.users (id, instance_id, aud, role, email, encrypted_password, e
 ('20000000-0000-4000-8000-000000000002', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'powerup-test-b@example.invalid', '', now(), '{"provider":"email","providers":["email"]}', '{"display_name":"Test User B"}', now(), now()),
 ('30000000-0000-4000-8000-000000000003', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'powerup-test-admin@example.invalid', '', now(), '{"provider":"email","providers":["email"]}', '{"display_name":"Test Admin"}', now(), now());
 
-insert into public.backup_plans (id, user_id, plan_name, backup_configuration, selected_appliances, calculation_results) values
-('a1000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'User A Plan', '{"backupType":"inverter","hasBattery":true}', '[]', '{}'),
-('b2000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', 'User B Plan', '{"backupType":"solar","hasBattery":true}', '[]', '{}');
+insert into public.backup_plans (id, user_id, plan_name, backup_configuration, selected_appliances, calculation_results)
+select 'a1000000-0000-4000-8000-000000000001'::uuid, '10000000-0000-4000-8000-000000000001'::uuid, 'User A Plan', configuration, appliances, results from plan_test_payload
+union all
+select 'b2000000-0000-4000-8000-000000000002'::uuid, '20000000-0000-4000-8000-000000000002'::uuid, 'User B Plan', configuration || '{"backupType":"solar"}'::jsonb, appliances, results from plan_test_payload;
 insert into public.system_readings (id, system_id, user_id, recorded_at, battery_percentage, load_watts) values
 ('a3000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', now(), 74, 420),
 ('b4000000-0000-4000-8000-000000000002', 'b2000000-0000-4000-8000-000000000002', '20000000-0000-4000-8000-000000000002', now(), 51, 680);
@@ -24,6 +62,29 @@ insert into public.admin_users (user_id) values ('30000000-0000-4000-8000-000000
 
 select ok((select relrowsecurity from pg_class where oid = 'public.profiles'::regclass), 'profiles has RLS enabled');
 select ok((select relrowsecurity from pg_class where oid = 'public.backup_plans'::regclass), 'backup_plans has RLS enabled');
+select is((select count(*)::integer from pg_constraint where conrelid = 'public.backup_plans'::regclass and conname in (
+  'backup_plans_00_configuration_size_check', 'backup_plans_01_appliances_size_check',
+  'backup_plans_02_results_size_check', 'backup_plans_10_configuration_shape_check',
+  'backup_plans_11_appliances_shape_check', 'backup_plans_12_results_shape_check'
+)), 6, 'six saved-plan size and shape constraints are installed');
+select is(octet_length(jsonb_build_object('notes', repeat('x', 131059))::text), 131072, 'PostgreSQL jsonb text uses the 128 KiB boundary');
+select is(octet_length(jsonb_build_object('advice', repeat('x', 262130))::text), 262144, 'PostgreSQL jsonb text uses the 256 KiB boundary');
+select ok((select powerup_private.valid_plan_configuration(configuration || jsonb_build_object('notes', repeat('x', 131072 - octet_length((configuration || '{"notes":""}'::jsonb)::text)))) from plan_test_payload), 'valid configuration exactly at 128 KiB is accepted');
+select ok(powerup_private.valid_plan_appliances(jsonb_build_array(jsonb_build_object('applianceId', 'custom-large', 'quantity', 1, 'customName', repeat('x', 131072 - octet_length('[{"applianceId":"custom-large","quantity":1,"customName":""}]'::jsonb::text))))), 'valid appliance snapshot exactly at 128 KiB is accepted');
+select ok((select powerup_private.valid_plan_results(jsonb_set(results, '{advice,verdictDescription}', to_jsonb(repeat('x', 262144 - octet_length(jsonb_set(results, '{advice,verdictDescription}', '""'::jsonb)::text))))) from plan_test_payload), 'valid result and advice exactly at 256 KiB are accepted');
+select ok((select powerup_private.valid_plan_configuration(configuration || '{"inverterRatingVA":null,"inverterSurgeWatts":null,"solarPanelCount":null,"solarPanelWatts":null,"notes":"optional"}'::jsonb) from plan_test_payload), 'nullable and optional equipment fields are accepted');
+select ok((select powerup_private.valid_plan_configuration(configuration || '{"backupType":"generator"}'::jsonb) from plan_test_payload), 'generator backup type remains supported');
+select ok((select powerup_private.valid_plan_configuration(configuration || '{"backupType":"none","hasBattery":false}'::jsonb) from plan_test_payload), 'no-battery plans remain supported');
+select ok(powerup_private.valid_plan_appliances('[{"applianceId":"custom-load","customName":"Pump","quantity":1.5,"watts":40,"operatingHours":2,"priority":"high"}]'::jsonb), 'fractional quantities and custom appliances remain supported');
+select ok(powerup_private.valid_plan_appliances('[{"applianceId":"router","quantity":0}]'::jsonb), 'zero quantity retains the calculator zero-load behavior');
+select ok(powerup_private.valid_plan_appliances('[]'::jsonb), 'empty appliance arrays remain supported');
+select ok(powerup_private.valid_plan_appliances((select jsonb_agg(jsonb_build_object('applianceId', 'custom-' || n, 'quantity', 1, 'customName', 'Load ' || n, 'watts', 10)) from generate_series(1, 300) as n)), '300 valid custom appliances are accepted without an item-count cap');
+select ok(not powerup_private.valid_plan_configuration('{}'::jsonb), 'missing required configuration fields are rejected');
+select ok(not (select powerup_private.valid_plan_configuration(configuration || '{"batteryChemistry":"fictional"}'::jsonb) from plan_test_payload), 'unsupported battery chemistry is rejected');
+select ok(not powerup_private.valid_plan_appliances('[{"applianceId":"router","quantity":"two"}]'::jsonb), 'wrong appliance quantity type is rejected');
+select ok(not powerup_private.valid_plan_results('{}'::jsonb), 'missing result and advice objects are rejected');
+select ok(not has_schema_privilege('anon', 'powerup_private', 'usage'), 'anonymous clients cannot access private validation helpers');
+select ok(has_schema_privilege('authenticated', 'powerup_private', 'usage'), 'authenticated plan writes can run validation');
 select ok((select relrowsecurity from pg_class where oid = 'public.system_readings'::regclass), 'system readings have RLS enabled');
 select ok(exists (select 1 from pg_trigger where tgrelid = 'public.system_readings'::regclass and tgname = 'system_readings_validate_compatibility' and not tgisinternal), 'system reading fields are checked against their saved configuration');
 select ok((select relrowsecurity from pg_class where oid = 'public.feedback'::regclass), 'feedback has RLS enabled');
@@ -51,12 +112,21 @@ select is((select count(*)::integer from public.backup_plans), 1, 'user A sees o
 select ok(has_column_privilege('authenticated', 'public.backup_plans', 'id', 'insert'), 'authenticated users may insert a stable plan ID');
 select ok(not has_table_privilege('authenticated', 'public.backup_plans', 'insert'), 'plan creation remains limited to column grants instead of broad table insert');
 insert into public.backup_plans (id, user_id, plan_name, backup_configuration, selected_appliances, calculation_results)
-values ('a6000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000001', 'User A Client Plan', '{"backupType":"inverter","hasBattery":true}', '[]', '{}');
+select 'a6000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000001', 'User A Client Plan', configuration, appliances, results from plan_test_payload;
 select is((select count(*)::integer from public.backup_plans where id = 'a6000000-0000-4000-8000-000000000006'), 1, 'authenticated user can create a plan using a stable ID');
 insert into public.backup_plans (id, user_id, plan_name, backup_configuration, selected_appliances, calculation_results)
-values ('a6000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000001', 'User A Client Plan retry', '{"backupType":"inverter","hasBattery":true}', '[]', '{}')
+select 'a6000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000001', 'User A Client Plan retry', configuration, appliances, results from plan_test_payload
 on conflict (id) do update set plan_name = excluded.plan_name;
 select is((select count(*)::integer from public.backup_plans where id = 'a6000000-0000-4000-8000-000000000006'), 1, 'retrying the same stable ID updates one row instead of creating a duplicate');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Bad configuration', '[]'::jsonb, appliances, results from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_10_configuration_shape_check"', 'a non-object configuration is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Bad appliances', configuration, '{}'::jsonb, results from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_11_appliances_shape_check"', 'a non-array appliance snapshot is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Bad results', configuration, appliances, '[]'::jsonb from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_12_results_shape_check"', 'a non-object result snapshot is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Large configuration', configuration || jsonb_build_object('notes', repeat('x', 131072)), appliances, results from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_00_configuration_size_check"', 'configuration over 128 KiB is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Large appliances', configuration, jsonb_build_array(jsonb_build_object('applianceId', 'custom-large', 'quantity', 1, 'customName', repeat('x', 131072))), results from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_01_appliances_size_check"', 'appliance snapshot over 128 KiB is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Large results', configuration, appliances, results || jsonb_build_object('padding', repeat('x', 262144)) from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_02_results_size_check"', 'result snapshot over 256 KiB is rejected');
+select throws_ok($$insert into public.backup_plans (user_id, plan_name, backup_configuration, selected_appliances, calculation_results) select '10000000-0000-4000-8000-000000000001', 'Malformed item', configuration, '[{"applianceId":"custom","quantity":"two"}]'::jsonb, results from plan_test_payload$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_11_appliances_shape_check"', 'malformed appliance entries are rejected');
+select throws_ok($$update public.backup_plans set backup_configuration = '[]'::jsonb where id = 'a6000000-0000-4000-8000-000000000006'$$, '23514', 'new row for relation "backup_plans" violates check constraint "backup_plans_10_configuration_shape_check"', 'invalid updates cannot corrupt a saved plan');
+select ok((select jsonb_typeof(backup_configuration) = 'object' from public.backup_plans where id = 'a6000000-0000-4000-8000-000000000006'), 'rejected update leaves the saved plan intact');
 select is((select count(*)::integer from public.system_readings), 1, 'user A sees only readings linked to their own systems');
 select is((select count(*)::integer from public.system_readings where id = 'b4000000-0000-4000-8000-000000000002'), 0, 'user A cannot read user B readings');
 select throws_ok($$insert into public.system_readings (id, system_id, user_id, recorded_at, load_watts) values ('a5000000-0000-4000-8000-000000000001', 'b2000000-0000-4000-8000-000000000002', '10000000-0000-4000-8000-000000000001', now(), 100)$$, '23503', 'insert or update on table "system_readings" violates foreign key constraint "system_readings_system_owner_fk"', 'a user cannot attach their reading to another user system');

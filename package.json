@@ -8,6 +8,7 @@
     "test:backup-upgrades": "npm --prefix frontend run test:backup-upgrades",
     "test:monitoring-data": "npm --prefix frontend run test:monitoring-data",
     "test:ai-advisor": "npm --prefix frontend run test:ai-advisor",
+    "test:plan-saving": "npm --prefix frontend run test:plan-saving",
     "verify:groq": "npm --prefix frontend run verify:groq"
   }
 }
