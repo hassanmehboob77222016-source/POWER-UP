@@ -114,16 +114,27 @@ export function createGroqProvider(options: GroqProviderOptions) {
           await new Promise(resolve => setTimeout(resolve, 250))
           continue
         }
+        console.warn('advisor model network failure')
         throw new AdvisorFailure('provider_unavailable', 503, 'The advisor model could not be reached in time. Please retry or use the manual calculator.', true)
       }
-      if (response.status === 429) throw new AdvisorFailure('rate_limited', 429, 'The advisor model is busy. Please try again later.', true)
+      if (response.status === 429) {
+        console.warn('advisor model HTTP status', response.status)
+        throw new AdvisorFailure('rate_limited', 429, 'The advisor model is busy. Please try again later.', true)
+      }
       if (response.status >= 500 && attempt === 0) {
         await new Promise(resolve => setTimeout(resolve, 250))
         continue
       }
       break
     }
-    if (!response?.ok) throw new AdvisorFailure('provider_unavailable', 503, 'The advisor model is temporarily unavailable. Please retry in a moment or use the manual calculator.', true)
+    if (!response?.ok) {
+      // Only the status is logged. Provider bodies can contain request details.
+      console.warn('advisor model HTTP status', response?.status ?? 'none')
+      if (response?.status === 401 || response?.status === 403) {
+        throw new AdvisorFailure('not_configured', 503, 'The advisor model credentials need attention. Use the manual calculator until they are checked.')
+      }
+      throw new AdvisorFailure('provider_unavailable', 503, 'The advisor model is temporarily unavailable. Please retry in a moment or use the manual calculator.', true)
+    }
     try {
       const rawBody = await response.text()
       if (rawBody.length > 32000) throw new Error('Oversized model reply')
@@ -132,6 +143,7 @@ export function createGroqProvider(options: GroqProviderOptions) {
       if (typeof content !== 'string' || content.length > 10000) throw new Error('Invalid model content')
       return JSON.parse(content)
     } catch {
+      console.warn('advisor model malformed reply')
       throw new AdvisorFailure('provider_invalid_output', 502, 'The advisor returned an invalid reply. Please try again.', true)
     }
   }

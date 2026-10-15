@@ -10,9 +10,9 @@ export const AI_ADVISOR_LIMITS = {
   maxTurnCharacters: 1000,
   maxConversationCharacters: 5000,
   maxAppliances: 30,
-  providerTimeoutMs: 15_000,
-  intakeOutputTokens: 1200,
-  explanationOutputTokens: 600,
+  providerTimeoutMs: 25_000,
+  intakeOutputTokens: 2400,
+  explanationOutputTokens: 1200,
 } as const
 
 export type AdvisorLocale = 'en' | 'ur'
