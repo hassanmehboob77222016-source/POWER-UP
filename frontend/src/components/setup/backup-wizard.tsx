@@ -25,18 +25,24 @@ type SelectedAppliance = {
   priority?: AppliancePriority
 }
 
+const UPS_VA_RATINGS = [300, 500, 600, 650, 750, 800, 850, 1000, 1200, 1500, 1600, 2000, 2500, 3000, 5000, 6000, 8000, 10000]
+
 export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCancel }: BackupWizardProps) {
   const [currentStep, setCurrentStep] = useState(Math.min(4, Math.max(1, initialStep)))
 
   // Form State
-  const [backupType, setBackupType] = useState<BackupType>(initialInputs?.backupType === 'solar' ? 'solar' : 'inverter')
+  const [backupType, setBackupType] = useState<BackupType | null>(
+    initialInputs?.backupType === 'solar' || initialInputs?.backupType === 'inverter' ? initialInputs.backupType : null
+  )
   const [batteryChemistry, setBatteryChemistry] = useState<BatteryChemistry>(initialInputs?.batteryChemistry || 'unknown')
   const [voltage, setVoltage] = useState<number>(initialInputs?.voltage || 0)
   const [ampHoursInput, setAmpHoursInput] = useState(initialInputs?.ampHours != null ? String(initialInputs.ampHours) : '')
   const ampHours = ampHoursInput === '' ? 0 : Number(ampHoursInput)
   const [directKwh, setDirectKwh] = useState<number | null>(initialInputs?.directKwh ?? null)
   const [useDirectKwh, setUseDirectKwh] = useState<boolean>(initialInputs?.directKwh != null)
-  const [isCapacityUnknown, setIsCapacityUnknown] = useState<boolean>(initialInputs ? initialInputs.isCapacityUnknown : true)
+  const [batteryDetailChoice, setBatteryDetailChoice] = useState<'have' | 'unknown' | null>(
+    initialInputs ? (initialInputs.isCapacityUnknown ? 'unknown' : 'have') : null
+  )
   const [inverterRatingWatts, setInverterRatingWatts] = useState<number | null>(initialInputs ? initialInputs.inverterRatingWatts : null)
   const [inverterRatingVA, setInverterRatingVA] = useState<number | null>(initialInputs?.inverterRatingVA ?? null)
   const inverterSurgeWatts = initialInputs?.inverterSurgeWatts ?? null
@@ -130,8 +136,9 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
   }
 
   const validateRequiredEquipmentDetails = () => {
-    if ((inverterRatingWatts === null || inverterRatingWatts <= 0) && (inverterRatingVA === null || inverterRatingVA <= 0)) {
-      setValidationError('Select the inverter rating shown on its label.')
+    const validVA = inverterRatingVA !== null && Number.isFinite(inverterRatingVA) && inverterRatingVA > 0 && inverterRatingVA <= 100000
+    if (!validVA) {
+      setValidationError('Select the UPS/inverter VA or kVA rating to continue.')
       return false
     }
     if (backupType === 'solar' && (
@@ -144,12 +151,34 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
     return true
   }
 
+  const hasBatteryDetails = batteryDetailChoice === 'have' && batteryChemistry !== 'unknown' && (
+    useDirectKwh
+      ? directKwh !== null && Number.isFinite(directKwh) && directKwh > 0 && directKwh <= 1000
+      : Number.isFinite(voltage) && voltage > 0 && voltage <= 1000 && Number.isFinite(ampHours) && ampHours > 0 && ampHours <= 1000000
+  )
+
+  const validateBatteryDetails = () => {
+    if (batteryDetailChoice !== 'have') {
+      setValidationError('Select “I have the label details” and enter your battery details to continue.')
+      return false
+    }
+    if (batteryChemistry === 'unknown') {
+      setValidationError('Choose the battery type shown on its label.')
+      return false
+    }
+    if (!hasBatteryDetails) {
+      setValidationError(useDirectKwh ? 'Enter a valid battery capacity in kWh.' : 'Enter a valid battery voltage and capacity in Ah.')
+      return false
+    }
+    return true
+  }
+
   const handleFinalSubmit = () => {
     setValidationError('')
+    if (!backupType) { setCurrentStep(1); setValidationError('Choose a backup power setup to continue.'); return }
+    if (!validateBatteryDetails()) { setCurrentStep(2); return }
     if (!validateRequiredEquipmentDetails()) return
     if (!Number.isFinite(typicalOutageHours) || typicalOutageHours < 1 || typicalOutageHours > 24) { setValidationError('Choose an outage length between 1 and 24 hours.'); return }
-    if (!Number.isFinite(voltage) || voltage < 0 || voltage > 1000 || !Number.isFinite(ampHours) || ampHours < 0 || ampHours > 1000000) { setValidationError('Check the battery voltage and capacity, or leave them blank if you are not sure.'); return }
-    if (useDirectKwh && directKwh !== null && (!Number.isFinite(directKwh) || directKwh <= 0 || directKwh > 1000)) { setValidationError('Check the battery capacity in kWh, or leave it blank if you are not sure.'); return }
     if (Object.keys(selectedMap).length === 0) { setValidationError('Choose at least one appliance to see your backup estimate.'); return }
     const invalidAppliance = Object.values(selectedMap).some(item => !Number.isFinite(item.quantity) || item.quantity < 1 || !Number.isFinite(item.watts) || (item.watts ?? 0) <= 0 || !Number.isFinite(item.operatingHours) || (item.operatingHours ?? -1) < 0 || (item.operatingHours ?? 0) > typicalOutageHours || (item.surgeWatts !== undefined && (!Number.isFinite(item.surgeWatts) || item.surgeWatts <= 0)))
     if (invalidAppliance) { setValidationError(`Check the appliance counts, power values, and hours used (up to ${typicalOutageHours}).`); return }
@@ -169,10 +198,10 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
       backupType,
       hasBattery: true,
       batteryChemistry,
-      voltage,
-      ampHours,
+      voltage: useDirectKwh ? 0 : voltage,
+      ampHours: useDirectKwh ? 0 : ampHours,
       directKwh: useDirectKwh ? directKwh : null,
-      isCapacityUnknown,
+      isCapacityUnknown: false,
       inverterRatingWatts,
       inverterRatingVA,
       inverterSurgeWatts,
@@ -192,6 +221,9 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
     const watts = val.watts ?? val.customWatts ?? preset?.wattage ?? 0
     return sum + (watts * val.quantity)
   }, 0)
+  const upsVaOptions = inverterRatingVA !== null && !UPS_VA_RATINGS.includes(inverterRatingVA)
+    ? [...UPS_VA_RATINGS, inverterRatingVA].sort((a, b) => a - b)
+    : UPS_VA_RATINGS
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
       {/* Wizard Header with Step Progress */}
@@ -244,7 +276,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           {currentStep === 1 && "Choose the closest match. If you are not sure, pick the option you use most often."}
-          {currentStep === 2 && "Tell us how long your power usually goes out. Battery details are optional."}
+          {currentStep === 2 && "Enter your battery details and how long your power usually goes out."}
           {currentStep === 3 && "Choose the lights, devices, and appliances you want to use. You can keep the suggested estimates."}
           {currentStep === 4 && "Choose whether to include everything or save power for the essentials."}
         </p>
@@ -278,7 +310,7 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                 <button
                   type="button"
                   key={item.id}
-                  onClick={() => setBackupType(item.id)}
+                  onClick={() => { setBackupType(item.id); setValidationError('') }}
                   aria-pressed={isSelected}
                   className={`p-5 rounded-2xl border cursor-pointer text-left transition-all ${
                     isSelected 
@@ -303,10 +335,13 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
             })}
           </div>
 
+          {validationError && <p role="alert" className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">{validationError}</p>}
+
           <div className="pt-6 flex justify-end">
             <button
               onClick={() => setCurrentStep(2)}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-black font-semibold text-sm hover:bg-primary-hover transition-colors"
+              disabled={!backupType}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-black font-semibold text-sm hover:bg-primary-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               Continue <ArrowRight className="w-4 h-4" />
             </button>
@@ -323,41 +358,43 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
         >
           <div className="p-6 rounded-2xl border border-border bg-card space-y-6">
               
-              {/* Unknown Specs Toggle */}
-              <div className="flex items-center justify-between pb-4 border-b border-border">
+              {/* Battery label details choice */}
+              <div className="pb-4 border-b border-border">
                 <div>
                   <h4 className="text-sm font-bold text-foreground">Do you know the details on your battery label?</h4>
-                  <p className="text-sm text-muted-foreground">No problem if you do not. You can still get an appliance estimate.</p>
+                  <p className="text-sm text-muted-foreground">Battery type and capacity are required to continue.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsCapacityUnknown(!isCapacityUnknown)}
-                  aria-pressed={!isCapacityUnknown}
-                  title={isCapacityUnknown ? 'Show battery specification fields' : 'Hide specifications and continue in safe mode'}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                    isCapacityUnknown 
-                      ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' 
-                      : 'bg-surface border-border text-foreground hover:bg-foreground/5'
-                  }`}
-                >
-                  {isCapacityUnknown ? "I have the label details" : "I do not know"}
-                </button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {([
+                    { id: 'have', label: 'I have the label details' },
+                    { id: 'unknown', label: 'I do not know' },
+                  ] as const).map(choice => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      onClick={() => { setBatteryDetailChoice(choice.id); setValidationError('') }}
+                      aria-pressed={batteryDetailChoice === choice.id}
+                      className={`rounded-lg border px-3 py-2 text-sm font-semibold transition-colors ${batteryDetailChoice === choice.id ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-surface text-foreground hover:border-primary/50'}`}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {!isCapacityUnknown ? (
+              {batteryDetailChoice === 'have' ? (
                 <>
                   {/* Chemistry Selector */}
                   <div>
                     <label className="block text-sm font-bold text-foreground mb-2">
                       What kind of battery is it?
                     </label>
-                    <p className="mb-3 text-sm text-muted-foreground">Look at the battery label. Choose "Not sure" if you cannot find the type.</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <p className="mb-3 text-sm text-muted-foreground">Choose the battery type shown on its label.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {[
                         { id: 'lifepo4' as BatteryChemistry, name: "Lithium (LiFePO4)", dod: "Lithium battery", desc: "Often marked LiFePO4" },
                         { id: 'lead_acid' as BatteryChemistry, name: "Lead-acid", dod: "Tubular or deep-cycle", desc: "Usually a heavier battery" },
-                        { id: 'agm' as BatteryChemistry, name: "AGM or gel", dod: "Sealed battery", desc: "Usually marked AGM or GEL" },
-                        { id: 'unknown' as BatteryChemistry, name: "Not sure", dod: "Skip runtime estimate", desc: "You can continue without this" }
+                        { id: 'agm' as BatteryChemistry, name: "AGM or gel", dod: "Sealed battery", desc: "Usually marked AGM or GEL" }
                       ].map(chem => (
                         <button
                           type="button"
@@ -455,15 +492,15 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                         {useDirectKwh ? directKwh !== null ? `${directKwh} kWh` : 'Not entered' : voltage > 0 && ampHours > 0 ? `${(voltage * ampHours / 1000).toFixed(1)} kWh` : 'Not entered'}
                       </span>
                     </div>
-                    {((useDirectKwh && (directKwh === null || directKwh <= 0)) || (!useDirectKwh && !(voltage > 0 && ampHours > 0))) && <p className="text-sm text-amber-700">You can continue without these numbers. PowerUp will show appliance estimates, but cannot estimate battery runtime.</p>}
+                    {!hasBatteryDetails && <p className="text-sm text-amber-700">Enter the battery type and capacity shown on the label to continue.</p>}
                   </div>
                 </>
-              ) : (
+              ) : batteryDetailChoice === 'unknown' ? (
                 <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2.5">
                   <Info className="w-4 h-4 shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <strong className="block font-bold">You can skip battery details</strong>
-                    PowerUp can still estimate the power needed by your appliances. It needs battery type and capacity to estimate runtime.
+                    <strong className="block font-bold">Battery details are required</strong>
+                    Check your battery label or manual for its type and capacity before continuing.
                     <details className="mt-3 rounded-lg border border-amber-500/20 bg-background/60 p-3 text-foreground">
                       <summary className="cursor-pointer font-semibold">Where do I find these details?</summary>
                       <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
@@ -471,52 +508,37 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
                         <li>If you have several batteries connected together, use the total values for the whole group.</li>
                         <li>Only enter values you can confirm. PowerUp will not guess missing battery details.</li>
                       </ul>
-                      <button type="button" onClick={() => setIsCapacityUnknown(false)} className="mt-3 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 font-semibold text-primary hover:bg-primary/20">
+                      <button type="button" onClick={() => setBatteryDetailChoice('have')} className="mt-3 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 font-semibold text-primary hover:bg-primary/20">
                         I found the label
                       </button>
                     </details>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               <details open className="border-t border-border pt-4">
                 <summary className="cursor-pointer text-sm font-semibold text-foreground">Backup unit details (required)</summary>
-                <p className="mt-2 text-sm text-muted-foreground">Select the rating shown on your inverter or UPS label.</p>
-                <div className="mt-3">
-                <label className="block text-sm text-foreground mb-1">
-                  Inverter rating (VA or W) <span aria-hidden="true">*</span>
-                </label>
-                <select
-                  required
-                  value={inverterRatingVA !== null ? `va:${inverterRatingVA}` : inverterRatingWatts !== null ? `w:${inverterRatingWatts}` : ''}
-                  onChange={e => {
-                    const [unit, value] = e.target.value.split(':')
-                    if (unit === 'va') { setInverterRatingVA(Number(value)); setInverterRatingWatts(null) }
-                    else if (unit === 'w') { setInverterRatingWatts(Number(value)); setInverterRatingVA(null) }
-                    else { setInverterRatingWatts(null); setInverterRatingVA(null) }
-                  }}
-                  className="w-full sm:max-w-xs bg-surface border border-border rounded-xl p-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
-                >
-                  <option value="" disabled>Select a rating</option>
-                  <optgroup label="Common VA ratings · approximate output watts">
-                    {inverterRatingVA !== null && ![500, 1000, 1500, 2000, 3000].includes(inverterRatingVA) && <option value={`va:${inverterRatingVA}`}>{inverterRatingVA.toLocaleString()} VA (entered)</option>}
-                    <option value="va:500">500 VA — approx. 300–400 W</option>
-                    <option value="va:1000">1,000 VA (1 kVA) — approx. 600–800 W</option>
-                    <option value="va:1500">1,500 VA (1.5 kVA) — approx. 900–1,200 W</option>
-                    <option value="va:2000">2,000 VA (2 kVA) — approx. 1,200–1,600 W</option>
-                    <option value="va:3000">3,000 VA (3 kVA) — approx. 1,800–2,400 W</option>
-                  </optgroup>
-                  <optgroup label="Exact watt ratings (if shown on label)">
-                    {inverterRatingWatts !== null && ![1000, 1500, 2000, 3000, 5000].includes(inverterRatingWatts) && <option value={`w:${inverterRatingWatts}`}>{inverterRatingWatts.toLocaleString()} W (entered)</option>}
-                    <option value="w:1000">1,000 W</option>
-                    <option value="w:1500">1,500 W</option>
-                    <option value="w:2000">2,000 W</option>
-                    <option value="w:3000">3,000 W</option>
-                    <option value="w:5000">5,000 W</option>
-                  </optgroup>
-                </select>
-                <p className="mt-1.5 text-xs text-muted-foreground">VA-to-watt ranges are approximate. PowerUp keeps VA and W separate and uses only a confirmed watt rating for load checks.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Select the VA or kVA rating shown on your UPS or inverter label.</p>
+                <div className="mt-3 sm:max-w-md">
+                  <label htmlFor="ups-va-rating" className="block text-sm text-foreground mb-1">UPS size (VA / kVA)</label>
+                  <select
+                    id="ups-va-rating"
+                    value={inverterRatingVA ?? ''}
+                    onChange={e => {
+                      setInverterRatingVA(e.target.value === '' ? null : Number(e.target.value))
+                      setInverterRatingWatts(null)
+                    }}
+                    className="w-full bg-surface border border-border rounded-xl p-2.5 text-sm font-mono text-foreground focus:outline-none focus:border-primary"
+                  >
+                    <option value="">Select a UPS size</option>
+                    {upsVaOptions.map(rating => (
+                      <option key={rating} value={rating}>
+                        {rating.toLocaleString()} VA ({rating / 1000} kVA) · approx. {Math.round(rating * 0.6).toLocaleString()}–{rating.toLocaleString()} W{!UPS_VA_RATINGS.includes(rating) ? ' (saved rating)' : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">W ranges are broad examples because actual output varies by model. Load checks need a confirmed watt rating.</p>
               </details>
 
               {backupType === 'solar' && <details open className="border-t border-border pt-4">
@@ -555,11 +577,21 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
               onChange={e => setTypicalOutageHours(parseInt(e.target.value, 10))}
               className="w-full accent-primary h-2 bg-surface rounded-lg cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
-              <span>1 hour</span>
-              <span>4 hours</span>
-              <span>8 hours</span>
-              <span>24 hours</span>
+            <div className="relative h-4 text-[10px] font-mono text-muted-foreground">
+              {[
+                { hour: 1, label: '1 hour' },
+                { hour: 4, label: '4 hours' },
+                { hour: 8, label: '8 hours' },
+                { hour: 24, label: '24 hours' },
+              ].map(tick => (
+                <span
+                  key={tick.hour}
+                  className={`absolute whitespace-nowrap ${tick.hour === 1 ? '' : tick.hour === 24 ? '-translate-x-full' : '-translate-x-1/2'}`}
+                  style={{ left: `${((tick.hour - 1) / 23) * 100}%` }}
+                >
+                  {tick.label}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -573,10 +605,12 @@ export function BackupWizard({ initialInputs, initialStep = 1, onSubmit, onCance
             <button
               onClick={() => {
                 setValidationError('')
+                if (!validateBatteryDetails()) return
                 if (!validateRequiredEquipmentDetails()) return
                 setCurrentStep(3)
               }}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-black font-semibold text-sm hover:bg-primary-hover transition-colors"
+              aria-disabled={!hasBatteryDetails}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-black font-semibold text-sm hover:bg-primary-hover transition-colors aria-disabled:opacity-50"
             >
               Choose appliances <ArrowRight className="w-4 h-4" />
             </button>
