@@ -244,7 +244,10 @@ ${advice.timelineSchedule.map(t => `- **${t.timeSlot}**: ${t.action} [${t.applia
                 <ArrowUpRight className="w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity" />
               </div>
               <div className="text-xl font-extrabold text-foreground font-mono mb-1">
-                {inputs.inverterRatingWatts === null ? inputs.inverterRatingVA ? `${inputs.inverterRatingVA} VA · W unknown` : 'Rating not provided' : `${inputs.inverterRatingWatts} W`}
+                {[
+                  inputs.inverterRatingVA !== null && inputs.inverterRatingVA !== undefined ? `${inputs.inverterRatingVA.toLocaleString()} VA (${inputs.inverterRatingVA / 1000} kVA)` : null,
+                  inputs.inverterRatingWatts !== null ? `${inputs.inverterRatingWatts.toLocaleString()} W` : null,
+                ].filter(Boolean).join(' · ') || 'Rating not provided'}
               </div>
               <div className="text-[11px] text-muted-foreground font-mono mb-2">
                 Peak starting load: {results.peakSurgeWatts === null ? 'Not available' : `${results.peakSurgeWatts} W`}
